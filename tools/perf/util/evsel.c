@@ -236,6 +236,7 @@ void perf_evsel__init(struct perf_evsel *evsel,
 	evsel->bpf_fd	   = -1;
 	INIT_LIST_HEAD(&evsel->node);
 	INIT_LIST_HEAD(&evsel->config_terms);
+	INIT_LIST_HEAD(&evsel->drv_config_terms);
 	perf_evsel__object.init(evsel);
 	evsel->sample_size = __perf_evsel__sample_size(attr->sample_type);
 	perf_evsel__calc_id_pos(evsel);
@@ -1182,6 +1183,16 @@ int perf_evsel__enable(struct perf_evsel *evsel)
 int perf_evsel__disable(struct perf_evsel *evsel)
 {
 	return perf_evsel__run_ioctl(evsel,
+				     PERF_EVENT_IOC_DISABLE,
+				     0);
+}
+
+int perf_evsel__disable(struct perf_evsel *evsel)
+{
+	int nthreads = thread_map__nr(evsel->threads);
+	int ncpus = cpu_map__nr(evsel->cpus);
+
+	return perf_evsel__run_ioctl(evsel, ncpus, nthreads,
 				     PERF_EVENT_IOC_DISABLE,
 				     0);
 }

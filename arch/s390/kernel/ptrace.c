@@ -985,6 +985,11 @@ static int s390_fpregs_set(struct task_struct *target,
 	else
 		memcpy(&fprs, target->thread.fpu.fprs, sizeof(fprs));
 
+	if (MACHINE_HAS_VX)
+		convert_vx_to_fp(fprs, target->thread.fpu.vxrs);
+	else
+		memcpy(&fprs, target->thread.fpu.fprs, sizeof(fprs));
+
 	/* If setting FPC, must validate it first. */
 	if (count > 0 && pos < offsetof(s390_fp_regs, fprs)) {
 		u32 ufpc[2] = { target->thread.fpu.fpc, 0 };
@@ -1088,6 +1093,9 @@ static int s390_vxrs_low_set(struct task_struct *target,
 		return -ENODEV;
 	if (target == current)
 		save_fpu_regs();
+
+	for (i = 0; i < __NUM_VXRS_LOW; i++)
+		vxrs[i] = *((__u64 *)(target->thread.fpu.vxrs + i) + 1);
 
 	for (i = 0; i < __NUM_VXRS_LOW; i++)
 		vxrs[i] = *((__u64 *)(target->thread.fpu.vxrs + i) + 1);

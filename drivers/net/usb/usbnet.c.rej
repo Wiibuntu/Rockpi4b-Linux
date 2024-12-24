@@ -1,0 +1,100 @@
+--- drivers/net/usb/usbnet.c
++++ drivers/net/usb/usbnet.c
+@@ -317,6 +317,8 @@ static void __usbnet_status_stop_force(struct usbnet *dev)
+  */
+ void usbnet_skb_return (struct usbnet *dev, struct sk_buff *skb)
+ {
++	struct pcpu_sw_netstats *stats64 = this_cpu_ptr(dev->stats64);
++//	unsigned long flags = 0;
+ 	int	status;
+ 
+ 	if (test_bit(EVENT_RX_PAUSED, &dev->flags)) {
+@@ -324,9 +326,14 @@ void usbnet_skb_return (struct usbnet *dev, struct sk_buff *skb)
+ 		return;
+ 	}
+ 
+-	skb->protocol = eth_type_trans (skb, dev->net);
+-	dev->net->stats.rx_packets++;
+-	dev->net->stats.rx_bytes += skb->len;
++	/* only update if unset to allow minidriver rx_fixup override */
++	if (skb->protocol == 0)
++		skb->protocol = eth_type_trans (skb, dev->net);
++
++	//flags = u64_stats_update_begin_irqsave(&stats64->syncp);
++	stats64->rx_packets++;
++	stats64->rx_bytes += skb->len;
++	//u64_stats_update_end_irqrestore(&stats64->syncp, flags);
+ 
+ 	netif_dbg(dev, rx_status, dev->net, "< rx, len %zu, type 0x%x\n",
+ 		  skb->len + sizeof (struct ethhdr), skb->protocol);
+@@ -1239,8 +1278,13 @@ static void tx_complete (struct urb *urb)
+ 	struct usbnet		*dev = entry->dev;
+ 
+ 	if (urb->status == 0) {
+-		dev->net->stats.tx_packets += entry->packets;
+-		dev->net->stats.tx_bytes += entry->length;
++		struct pcpu_sw_netstats *stats64 = this_cpu_ptr(dev->stats64);
++//		unsigned long flags = 0;
++
++//		flags = u64_stats_update_begin_irqsave(&stats64->syncp);
++		stats64->tx_packets += entry->packets;
++		stats64->tx_bytes += entry->length;
++//		u64_stats_update_end_irqrestore(&stats64->syncp, flags);
+ 	} else {
+ 		dev->net->stats.tx_errors++;
+ 
+@@ -1596,6 +1640,7 @@ void usbnet_disconnect (struct usb_interface *intf)
+ 	usb_free_urb(dev->interrupt);
+ 	kfree(dev->padding_pkt);
+ 
++	free_percpu(dev->stats64);
+ 	free_netdev(net);
+ }
+ EXPORT_SYMBOL_GPL(usbnet_disconnect);
+@@ -1607,6 +1652,7 @@ static const struct net_device_ops usbnet_netdev_ops = {
+ 	.ndo_tx_timeout		= usbnet_tx_timeout,
+ 	.ndo_set_rx_mode	= usbnet_set_rx_mode,
+ 	.ndo_change_mtu		= usbnet_change_mtu,
++	.ndo_get_stats64	= usbnet_get_stats64,
+ 	.ndo_set_mac_address 	= eth_mac_addr,
+ 	.ndo_validate_addr	= eth_validate_addr,
+ };
+@@ -1668,6 +1714,11 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
+ 	dev->intf = udev;
+ 	dev->driver_info = info;
+ 	dev->driver_name = name;
++
++	dev->stats64 = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
++	if (!dev->stats64)
++		goto out0;
++
+ 	dev->msg_enable = netif_msg_init (msg_level, NETIF_MSG_DRV
+ 				| NETIF_MSG_PROBE | NETIF_MSG_LINK);
+ 	init_waitqueue_head(&dev->wait);
+@@ -1798,6 +1849,15 @@ out3:
+ 	if (info->unbind)
+ 		info->unbind (dev, udev);
+ out1:
++	/* subdrivers must undo all they did in bind() if they
++	 * fail it, but we may fail later and a deferred kevent
++	 * may trigger an error resubmitting itself and, worse,
++	 * schedule a timer. So we kill it all just in case.
++	 */
++	cancel_work_sync(&dev->kevent);
++	del_timer_sync(&dev->delay);
++	free_percpu(dev->stats64);
++out0:
+ 	free_netdev(net);
+ out:
+ 	return status;
+@@ -2015,6 +2075,10 @@ int cdc_parse_cdc_header(struct usb_cdc_parsed_header *hdr,
+ 			elength = 1;
+ 			goto next_desc;
+ 		}
++		if ((buflen < elength) || (elength < 3)) {
++			dev_err(&intf->dev, "invalid descriptor buffer length\n");
++			break;
++		}
+ 		if (buffer[1] != USB_DT_CS_INTERFACE) {
+ 			dev_err(&intf->dev, "skipping garbage\n");
+ 			goto next_desc;

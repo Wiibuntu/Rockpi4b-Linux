@@ -279,8 +279,8 @@ EXPORT_SYMBOL_GPL(fwnode_property_present);
  * Function reads an array of u8 properties with @propname from the device
  * firmware description and stores them to @val if found.
  *
- * Return: number of values if @val was %NULL,
- *         %0 if the property was found (success),
+ * Return: number of values read on success if @val is non-NULL,
+ *	   number of values available on success if @val is NULL,
  *	   %-EINVAL if given arguments are not valid,
  *	   %-ENODATA if the property does not have a value,
  *	   %-EPROTO if the property is not an array of numbers,

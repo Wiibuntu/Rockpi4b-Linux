@@ -24,7 +24,8 @@
 #include <linux/types.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
-#include <linux/buffer_head.h>
+#include <linux/highmem.h>
+#include <linux/fs.h>
 
 #include "squashfs_fs.h"
 #include "squashfs_fs_sb.h"
@@ -62,6 +63,12 @@ static const struct squashfs_decompressor squashfs_xz_comp_ops = {
 #ifndef CONFIG_SQUASHFS_ZLIB
 static const struct squashfs_decompressor squashfs_zlib_comp_ops = {
 	NULL, NULL, NULL, NULL, ZLIB_COMPRESSION, "zlib", 0
+};
+#endif
+
+#ifndef CONFIG_SQUASHFS_ZSTD
+static const struct squashfs_decompressor squashfs_zstd_comp_ops = {
+	NULL, NULL, NULL, NULL, ZSTD_COMPRESSION, "zstd", 0
 };
 #endif
 

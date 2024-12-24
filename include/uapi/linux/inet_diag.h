@@ -108,6 +108,11 @@ struct inet_diag_markcond {
 	__u32 mask;
 };
 
+struct inet_diag_markcond {
+	__u32 mark;
+	__u32 mask;
+};
+
 /* Base info structure. It contains socket identity (addrs/ports/cookie)
  * and, alas, the information shown by netstat. */
 struct inet_diag_msg {

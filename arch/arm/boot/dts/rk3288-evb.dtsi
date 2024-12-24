@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2015~2017 Fuzhou Rockchip Electronics Co., Ltd
+ *
  * This file is dual-licensed: you can use it either under the terms
  * of the GPL or the X11 license, at your option. Note that this dual
  * licensing only applies to this file, and not this project as a
@@ -200,6 +202,16 @@
 		regulator-boot-on;
 	};
 
+	/* This switch DIO3222 HOST_DP_HOST to host2 (dwc2) */
+	vcc_3g: vcc-3g-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio7 8 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwr_3g>;
+		regulator-name = "vcc_3g";
+	};
+
 	/*
 	 * NOTE: vcc_sd isn't hooked up on v1.0 boards where power comes from
 	 * vcc_io directly.  Those boards won't be able to power cycle SD cards
@@ -314,29 +326,105 @@
 	status = "okay";
 };
 
-&uart0 {
+&isp {
 	status = "okay";
 };
 
-&uart1 {
+&isp_mmu {
+	status = "okay";
+};
+
+&rga {
+	status = "okay";
+};
+
+&sdio0 {
+	status = "okay";
+	max-frequency = <150000000>;
+
+	bus-width = <4>;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+	disable-wp;
+	keep-power-in-suspend;
+	mmc-pwrseq = <&sdio_pwrseq>;
+	non-removable;
+	num-slots = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdio0_bus4 &sdio0_cmd &sdio0_clk &sdio0_int>;
+	sd-uhs-sdr104;
+	supports-sdio;
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_xfer &uart0_cts>;
 	status = "okay";
 };
 
 &uart2 {
-	status = "okay";
+	status = "disabled";
 };
 
-&uart3 {
-	status = "okay";
-};
-
-&uart4 {
+&vpu_service {
 	status = "okay";
 };
 
 &tsadc {
-	rockchip,hw-tshut-mode = <0>; /* tshut mode 0:CRU 1:GPIO */
 	rockchip,hw-tshut-polarity = <0>; /* tshut polarity 0:LOW 1:HIGH */
+	status = "okay";
+};
+
+&usbphy {
+	status = "okay";
+};
+
+&usb_host0_ehci {
+	rockchip-relinquish-port;
+	status = "okay";
+};
+
+&usb_host0_ohci {
+	status = "okay";
+};
+
+&usb_host1 {
+	status = "okay";
+};
+
+&usb_otg {
+	status = "okay";
+};
+
+&lvds {
+	status = "disabled";
+	ports {
+		lvds_out: port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			lvds_out_panel: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&panel_in_lvds>;
+			};
+		};
+	};
+};
+
+&vopb {
+	status = "okay";
+};
+
+&vopb_mmu {
+	status = "okay";
+};
+
+&vopl {
+	status = "okay";
+};
+
+&vopl_mmu {
 	status = "okay";
 };
 
@@ -403,6 +491,10 @@
 		host_vbus_drv: host-vbus-drv {
 			rockchip,pins = <0 14 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
+
+		pwr_3g: pwr-3g {
+			rockchip,pins = <7 8 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
 	};
 
 	eth_phy {
@@ -410,32 +502,16 @@
 			rockchip,pins = <0 6 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
-};
 
-&usbphy {
-	status = "okay";
-};
+	lcd {
+		lcd_cs: lcd-cs {
+			rockchip,pins = <7 4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
 
-&usb_host0_ehci {
-	status = "okay";
-};
-
-&usb_host1 {
-	status = "okay";
-};
-
-&vopb {
-	status = "okay";
-};
-
-&vopb_mmu {
-	status = "okay";
-};
-
-&vopl {
-	status = "okay";
-};
-
-&vopl_mmu {
-	status = "okay";
+	wireless-bluetooth {
+		uart0_gpios: uart0-gpios {
+			rockchip,pins = <4 19 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
 };

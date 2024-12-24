@@ -5388,6 +5388,8 @@ static void ilk_pipe_wm_get_hw_state(struct drm_crtc *crtc)
 
 	memset(active, 0, sizeof(*active));
 
+	memset(active, 0, sizeof(*active));
+
 	active->pipe_enabled = intel_crtc->active;
 
 	if (active->pipe_enabled) {
@@ -6158,6 +6160,12 @@ static void gen6_set_rps_thresholds(struct drm_i915_private *dev_priv, u8 val)
 		threshold_down = 60;
 		break;
 	}
+
+	/* When byt can survive without system hang with dynamic
+	 * sw freq adjustments, this restriction can be lifted.
+	 */
+	if (IS_VALLEYVIEW(dev_priv))
+		goto skip_hw_write;
 
 	/* When byt can survive without system hang with dynamic
 	 * sw freq adjustments, this restriction can be lifted.

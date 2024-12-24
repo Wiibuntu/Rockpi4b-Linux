@@ -1,0 +1,11 @@
+--- scripts/coccinelle/misc/array_size.cocci
++++ scripts/coccinelle/misc/array_size.cocci
+@@ -59,7 +59,7 @@ T[] E;
+ //  For org and report mode
+ //----------------------------------------------------------
+ 
+-@r@
++@r depends on (org || report)@
+ type T;
+ T[] E;
+ position p;

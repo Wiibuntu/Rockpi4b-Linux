@@ -364,6 +364,7 @@ nfs3svc_decode_readargs(struct svc_rqst *rqstp, __be32 *p)
 	unsigned int len;
 	int v;
 	u32 max_blocksize = svc_max_payload(rqstp);
+	struct kvec *head = rqstp->rq_arg.head;
 
 	p = decode_fh(p, &args->fh);
 	if (!p)
@@ -917,6 +918,7 @@ encode_entry(struct readdir_cd *ccd, const char *name, int namlen,
 		} else {
 			xdr_encode_hyper(cd->offset, offset64);
 		}
+		cd->offset = NULL;
 	}
 
 	/*

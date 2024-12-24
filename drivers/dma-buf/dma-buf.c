@@ -37,7 +37,15 @@
 
 #include <uapi/linux/dma-buf.h>
 
+#include <uapi/linux/dma-buf.h>
+
 static inline int is_dma_buf_file(struct file *);
+
+struct dma_buf_callback {
+	struct list_head list;
+	void (*callback)(void *);
+	void *data;
+};
 
 struct dma_buf_list {
 	struct list_head head;
@@ -49,6 +57,7 @@ static struct dma_buf_list db_list;
 static int dma_buf_release(struct inode *inode, struct file *file)
 {
 	struct dma_buf *dmabuf;
+	struct dma_buf_callback *cb, *tmp;
 
 	if (!is_dma_buf_file(file))
 		return -EINVAL;
@@ -66,6 +75,13 @@ static int dma_buf_release(struct inode *inode, struct file *file)
 	 * dma-buf while still having pending operation to the buffer.
 	 */
 	BUG_ON(dmabuf->cb_shared.active || dmabuf->cb_excl.active);
+
+	list_for_each_entry_safe(cb, tmp, &dmabuf->release_callbacks, list) {
+		if (cb->callback)
+			cb->callback(cb->data);
+		list_del(&cb->list);
+		kfree(cb);
+	}
 
 	dmabuf->ops->release(dmabuf);
 
@@ -338,6 +354,37 @@ static inline int is_dma_buf_file(struct file *file)
 	return file->f_op == &dma_buf_fops;
 }
 
+int dma_buf_set_release_callback(struct dma_buf *dmabuf,
+				 void (*callback)(void *), void *data)
+{
+	struct dma_buf_callback *cb;
+
+	if (WARN_ON(dma_buf_get_release_callback_data(dmabuf, callback)))
+		return -EINVAL;
+
+	cb = kzalloc(sizeof(*cb), GFP_KERNEL);
+	if (!cb)
+		return -ENOMEM;
+	cb->callback = callback;
+	cb->data = data;
+	list_add_tail(&cb->list, &dmabuf->release_callbacks);
+
+	return 0;
+}
+
+void *dma_buf_get_release_callback_data(struct dma_buf *dmabuf,
+					void (*callback)(void *))
+{
+	struct dma_buf_callback *cb, *tmp;
+
+	list_for_each_entry_safe(cb, tmp, &dmabuf->release_callbacks, list) {
+		if (cb->callback == callback)
+			return cb->data;
+	}
+
+	return NULL;
+}
+
 /**
  * DOC: dma buf device access
  *
@@ -447,6 +494,7 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 
 	mutex_init(&dmabuf->lock);
 	INIT_LIST_HEAD(&dmabuf->attachments);
+	INIT_LIST_HEAD(&dmabuf->release_callbacks);
 
 	mutex_lock(&db_list.lock);
 	list_add(&dmabuf->list_node, &db_list.head);

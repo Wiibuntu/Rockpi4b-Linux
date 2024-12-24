@@ -176,6 +176,8 @@ struct atmel_uart_port {
 	} cache;
 #endif
 
+	bool			hd_start_rx;	/* can start RX during half-duplex operation */
+
 	int (*prepare_rx)(struct uart_port *port);
 	int (*prepare_tx)(struct uart_port *port);
 	void (*schedule_rx)(struct uart_port *port);
@@ -223,6 +225,12 @@ static inline u8 atmel_uart_read_char(struct uart_port *port)
 static inline void atmel_uart_write_char(struct uart_port *port, u8 value)
 {
 	__raw_writeb(value, port->membase + ATMEL_US_THR);
+}
+
+static inline int atmel_uart_is_half_duplex(struct uart_port *port)
+{
+	return (port->rs485.flags & SER_RS485_ENABLED) &&
+		!(port->rs485.flags & SER_RS485_RX_DURING_TX);
 }
 
 #ifdef CONFIG_SERIAL_ATMEL_PDC
@@ -277,6 +285,13 @@ static void atmel_tasklet_schedule(struct atmel_uart_port *atmel_port,
 {
 	if (!atomic_read(&atmel_port->tasklet_shutdown))
 		tasklet_schedule(t);
+}
+
+static bool atmel_use_fifo(struct uart_port *port)
+{
+	struct atmel_uart_port *atmel_port = to_atmel_uart_port(port);
+
+	return atmel_port->fifo_size;
 }
 
 static unsigned int atmel_get_lines_status(struct uart_port *port)
@@ -1156,6 +1171,10 @@ static int atmel_prepare_rx_dma(struct uart_port *port)
 					 sg_dma_len(&atmel_port->sg_rx)/2,
 					 DMA_DEV_TO_MEM,
 					 DMA_PREP_INTERRUPT);
+	if (!desc) {
+		dev_err(port->dev, "Preparing DMA cyclic failed\n");
+		goto chan_err;
+	}
 	desc->callback = atmel_complete_rx_dma;
 	desc->callback_param = port;
 	atmel_port->desc_rx = desc;
@@ -1373,8 +1392,7 @@ static void atmel_tx_pdc(struct uart_port *port)
 		atmel_uart_writel(port, ATMEL_US_IER,
 				  atmel_port->tx_done_mask);
 	} else {
-		if ((port->rs485.flags & SER_RS485_ENABLED) &&
-		    !(port->rs485.flags & SER_RS485_RX_DURING_TX)) {
+		if (atmel_uart_is_half_duplex(port)) {
 			/* DMA done, stop TX, start RX for RS485 */
 			atmel_start_rx(port);
 		}
@@ -1995,6 +2013,11 @@ static void atmel_serial_pm(struct uart_port *port, unsigned int state,
 	default:
 		dev_err(port->dev, "atmel_serial: unknown pm %d\n", state);
 	}
+	/*
+	 * in uart_flush_buffer(), the xmit circular buffer has just
+	 * been cleared, so we have to reset tx_len accordingly.
+	 */
+	atmel_port->tx_len = 0;
 }
 
 /*
@@ -2424,6 +2447,9 @@ static void atmel_console_write(struct console *co, const char *s, u_int count)
 	/* Make sure that tx path is actually able to send characters */
 	atmel_uart_writel(port, ATMEL_US_CR, ATMEL_US_TXEN);
 	atmel_port->tx_stopped = false;
+
+	/* Make sure that tx path is actually able to send characters */
+	atmel_uart_writel(port, ATMEL_US_CR, ATMEL_US_TXEN);
 
 	uart_console_write(port, s, count, atmel_console_putchar);
 

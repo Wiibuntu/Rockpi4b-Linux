@@ -46,6 +46,15 @@
  * exchange is properly mapped during a transfer.
  */
 
+struct access_params {
+	unsigned long channel;
+	u32 size;
+	unsigned long address;
+	u32 cmd;
+	u32 result;
+	/* reserved for future extension */
+	u32 flags;
+};
 
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -741,6 +750,9 @@ static int goldfish_pipe_open(struct inode *inode, struct file *file)
 
 	pipe->dev = dev;
 	mutex_init(&pipe->lock);
+	pr_debug("%s: call. pipe_dev dev=%p new_pipe_addr=%p file=%p\n",
+		__func__, dev, pipe, file);
+	/* spin lock init, write head of list, i guess */
 	init_waitqueue_head(&pipe->wake_queue);
 
 	/*
@@ -796,6 +808,7 @@ static int goldfish_pipe_release(struct inode *inode, struct file *filp)
 	struct goldfish_pipe *pipe = filp->private_data;
 	struct goldfish_pipe_dev *dev = pipe->dev;
 
+	pr_debug("%s: call. pipe=%p file=%p\n", __func__, pipe, filp);
 	/* The guest is closing the channel, so tell the emulator right now */
 	(void)goldfish_cmd(pipe, PIPE_CMD_CLOSE);
 

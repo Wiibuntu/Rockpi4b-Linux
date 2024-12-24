@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/segment.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
@@ -1961,7 +1958,7 @@ static void __add_sum_entry(struct f2fs_sb_info *sbi, int type,
 /*
  * Calculate the number of current summary pages for writing
  */
-int npages_for_summary_flush(struct f2fs_sb_info *sbi, bool for_ra)
+int f2fs_npages_for_summary_flush(struct f2fs_sb_info *sbi, bool for_ra)
 {
 	int valid_sum_count = 0;
 	int i, sum_in_page;
@@ -2008,7 +2005,33 @@ void update_meta_page(struct f2fs_sb_info *sbi, void *src, block_t blk_addr)
 static void write_sum_page(struct f2fs_sb_info *sbi,
 			struct f2fs_summary_block *sum_blk, block_t blk_addr)
 {
-	update_meta_page(sbi, (void *)sum_blk, blk_addr);
+	f2fs_update_meta_page(sbi, (void *)sum_blk, blk_addr);
+}
+
+static void write_current_sum_page(struct f2fs_sb_info *sbi,
+						int type, block_t blk_addr)
+{
+	struct curseg_info *curseg = CURSEG_I(sbi, type);
+	struct page *page = f2fs_grab_meta_page(sbi, blk_addr);
+	struct f2fs_summary_block *src = curseg->sum_blk;
+	struct f2fs_summary_block *dst;
+
+	dst = (struct f2fs_summary_block *)page_address(page);
+	memset(dst, 0, PAGE_SIZE);
+
+	mutex_lock(&curseg->curseg_mutex);
+
+	down_read(&curseg->journal_rwsem);
+	memcpy(&dst->journal, curseg->journal, SUM_JOURNAL_SIZE);
+	up_read(&curseg->journal_rwsem);
+
+	memcpy(dst->entries, src->entries, SUM_ENTRY_SIZE);
+	memcpy(&dst->footer, &src->footer, SUM_FOOTER_SIZE);
+
+	mutex_unlock(&curseg->curseg_mutex);
+
+	set_page_dirty(page);
+	f2fs_put_page(page, 1);
 }
 
 static void write_current_sum_page(struct f2fs_sb_info *sbi,
@@ -2162,6 +2185,29 @@ static unsigned int __get_next_segno(struct f2fs_sb_info *sbi, int type)
 	/* if segs_per_sec is large than 1, we need to keep original policy. */
 	if (sbi->segs_per_sec != 1)
 		return CURSEG_I(sbi, type)->segno;
+
+	if (test_opt(sbi, NOHEAP) &&
+		(type == CURSEG_HOT_DATA || IS_NODESEG(type)))
+		return 0;
+
+	if (SIT_I(sbi)->last_victim[ALLOC_NEXT])
+		return SIT_I(sbi)->last_victim[ALLOC_NEXT];
+
+	/* find segments from 0 to reuse freed segments */
+	if (F2FS_OPTION(sbi).alloc_mode == ALLOC_MODE_REUSE)
+		return 0;
+
+	return CURSEG_I(sbi, type)->segno;
+}
+
+static unsigned int __get_next_segno(struct f2fs_sb_info *sbi, int type)
+{
+	/* if segs_per_sec is large than 1, we need to keep original policy. */
+	if (__is_large_section(sbi))
+		return CURSEG_I(sbi, type)->segno;
+
+	if (unlikely(is_sbi_flag_set(sbi, SBI_CP_DISABLED)))
+		return 0;
 
 	if (test_opt(sbi, NOHEAP) &&
 		(type == CURSEG_HOT_DATA || IS_NODESEG(type)))
@@ -2839,6 +2885,8 @@ void __f2fs_replace_block(struct f2fs_sb_info *sbi, struct f2fs_summary *sum,
 
 	down_write(&SM_I(sbi)->curseg_lock);
 
+	down_write(&SM_I(sbi)->curseg_lock);
+
 	if (!recover_curseg) {
 		/* for recovery flow */
 		if (se->valid_blocks == 0 && !IS_CURSEG(sbi, segno)) {
@@ -3010,6 +3058,7 @@ static int read_normal_summaries(struct f2fs_sb_info *sbi, int type)
 	unsigned short blk_off;
 	unsigned int segno = 0;
 	block_t blk_addr = 0;
+	int err = 0;
 
 	/* get segment number and block addr */
 	if (IS_DATASEG(type)) {
@@ -3032,7 +3081,9 @@ static int read_normal_summaries(struct f2fs_sb_info *sbi, int type)
 			blk_addr = GET_SUM_BLOCK(sbi, segno);
 	}
 
-	new = get_meta_page(sbi, blk_addr);
+	new = f2fs_get_meta_page(sbi, blk_addr);
+	if (IS_ERR(new))
+		return PTR_ERR(new);
 	sum = (struct f2fs_summary_block *)page_address(new);
 
 	if (IS_NODESEG(type)) {
@@ -3096,6 +3147,11 @@ static int restore_curseg_summaries(struct f2fs_sb_info *sbi)
 		if (err)
 			return err;
 	}
+
+	/* sanity check for summary blocks */
+	if (nats_in_cursum(nat_j) > NAT_JOURNAL_ENTRIES ||
+			sits_in_cursum(sit_j) > SIT_JOURNAL_ENTRIES)
+		return -EINVAL;
 
 	/* sanity check for summary blocks */
 	if (nats_in_cursum(nat_j) > NAT_JOURNAL_ENTRIES ||
@@ -3893,7 +3949,7 @@ static void destroy_dirty_segmap(struct f2fs_sb_info *sbi)
 
 	destroy_victim_secmap(sbi);
 	SM_I(sbi)->dirty_info = NULL;
-	kfree(dirty_i);
+	kvfree(dirty_i);
 }
 
 static void destroy_curseg(struct f2fs_sb_info *sbi)
@@ -3919,7 +3975,7 @@ static void destroy_free_segmap(struct f2fs_sb_info *sbi)
 	SM_I(sbi)->free_info = NULL;
 	kvfree(free_i->free_segmap);
 	kvfree(free_i->free_secmap);
-	kfree(free_i);
+	kvfree(free_i);
 }
 
 static void destroy_sit_info(struct f2fs_sb_info *sbi)

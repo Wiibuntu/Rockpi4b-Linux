@@ -127,6 +127,7 @@ struct bus_type {
 
 	int (*suspend)(struct device *dev, pm_message_t state);
 	int (*resume)(struct device *dev);
+	int (*shutdown)(struct device *dev);
 
 	int (*num_vf)(struct device *dev);
 

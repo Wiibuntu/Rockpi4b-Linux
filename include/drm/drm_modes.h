@@ -439,6 +439,7 @@ static inline bool drm_mode_is_stereo(const struct drm_display_mode *mode)
 
 struct drm_connector;
 struct drm_cmdline_mode;
+struct drm_display_info;
 
 struct drm_display_mode *drm_mode_create(struct drm_device *dev);
 void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);

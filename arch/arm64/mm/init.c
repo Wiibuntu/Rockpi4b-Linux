@@ -601,6 +601,8 @@ void __init mem_init(void)
 
 	kexec_reserve_crashkres_pages();
 
+	kexec_reserve_crashkres_pages();
+
 	mem_init_print_info(NULL);
 
 	/*

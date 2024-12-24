@@ -2998,6 +2998,9 @@ static void __init prom_find_boot_cpu(void)
 	if (!PHANDLE_VALID(cpu_pkg))
 		return;
 
+	if (!PHANDLE_VALID(cpu_pkg))
+		return;
+
 	prom_getprop(cpu_pkg, "reg", &rval, sizeof(rval));
 	prom.cpu = be32_to_cpu(rval);
 

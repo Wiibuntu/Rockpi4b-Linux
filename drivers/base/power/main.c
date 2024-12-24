@@ -33,6 +33,7 @@
 #include <linux/cpufreq.h>
 #include <linux/cpuidle.h>
 #include <linux/timer.h>
+#include <linux/wakeup_reason.h>
 
 #include "../base.h"
 #include "power.h"
@@ -446,7 +447,7 @@ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
 	if (!cb)
 		return 0;
 
-	calltime = initcall_debug_start(dev);
+	calltime = initcall_debug_start(dev, cb);
 
 	pm_dev_dbg(dev, state, info);
 	trace_device_pm_callback_start(dev, info, state.event);
@@ -1297,6 +1298,8 @@ static int __device_suspend_noirq(struct device *dev, pm_message_t state, bool a
 
 	dpm_wait_for_subordinate(dev, async);
 
+	dpm_wait_for_children(dev, async);
+
 	if (async_error)
 		goto Complete;
 
@@ -1512,6 +1515,8 @@ static int __device_suspend_late(struct device *dev, pm_message_t state, bool as
 
 	dpm_wait_for_subordinate(dev, async);
 
+	dpm_wait_for_children(dev, async);
+
 	if (async_error)
 		goto Complete;
 
@@ -1664,7 +1669,7 @@ static int legacy_suspend(struct device *dev, pm_message_t state,
 	int error;
 	ktime_t calltime;
 
-	calltime = initcall_debug_start(dev);
+	calltime = initcall_debug_start(dev, cb);
 
 	trace_device_pm_callback_start(dev, info, state.event);
 	error = cb(dev, state);
@@ -1709,6 +1714,7 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	pm_callback_t callback = NULL;
 	const char *info = NULL;
 	int error = 0;
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 	DECLARE_DPM_WATCHDOG_ON_STACK(wd);
 
 	TRACE_DEVICE(dev);
@@ -1716,8 +1722,10 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 
 	dpm_wait_for_subordinate(dev, async);
 
-	if (async_error)
+	if (async_error) {
+		dev->power.direct_complete = false;
 		goto Complete;
+	}
 
 	/*
 	 * If a device configured to wake up the system from sleep states
@@ -1729,6 +1737,10 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 		pm_wakeup_event(dev, 0);
 
 	if (pm_wakeup_pending()) {
+		pm_get_active_wakeup_sources(suspend_abort,
+			MAX_SUSPEND_ABORT_LEN);
+		log_suspend_abort_reason(suspend_abort);
+		dev->power.direct_complete = false;
 		async_error = -EBUSY;
 		goto Complete;
 	}
@@ -1752,6 +1764,11 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 
 	dpm_watchdog_set(&wd, dev);
 	device_lock(dev);
+
+	if (dev->power.no_pm_callbacks) {
+		ret = 1;	/* Let device go direct_complete */
+		goto unlock;
+	}
 
 	if (dev->pm_domain) {
 		info = "power domain ";
@@ -1801,6 +1818,7 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 		dpm_clear_superiors_direct_complete(dev);
 	}
 
+unlock:
 	device_unlock(dev);
 	dpm_watchdog_clear(&wd);
 

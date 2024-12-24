@@ -28,6 +28,7 @@
 #include <sound/tlv.h>
 #include <sound/jack.h>
 
+#include <linux/clk.h>
 #include "rl6231.h"
 #include "rt5651.h"
 
@@ -287,6 +288,39 @@ static bool rt5651_readable_register(struct device *dev, unsigned int reg)
 	}
 }
 
+static int rt5651_asrc_get(struct snd_kcontrol *kcontrol,
+			   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct rt5651_priv *rt5651 = snd_soc_codec_get_drvdata(codec);
+
+	ucontrol->value.integer.value[0] = rt5651->asrc_en;
+
+	return 0;
+}
+
+static int rt5651_asrc_put(struct snd_kcontrol *kcontrol,
+			   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct rt5651_priv *rt5651 = snd_soc_codec_get_drvdata(codec);
+
+	rt5651->asrc_en = ucontrol->value.integer.value[0];
+	if (rt5651->asrc_en) {
+		snd_soc_write(codec, 0x80, 0x4000);
+		snd_soc_write(codec, 0x81, 0x0302);
+		snd_soc_write(codec, 0x82, 0x0800);
+		snd_soc_write(codec, 0x73, 0x1004);
+		snd_soc_write(codec, 0x83, 0x1000);
+		snd_soc_write(codec, 0x84, 0x7000);
+		snd_soc_update_bits(codec, 0x64, 0x0200, 0x0200);
+	} else {
+		snd_soc_write(codec, 0x83, 0x0);
+		snd_soc_write(codec, 0x84, 0x0);
+	}
+	return 0;
+}
+
 static const DECLARE_TLV_DB_SCALE(out_vol_tlv, -4650, 150, 0);
 static const DECLARE_TLV_DB_SCALE(dac_vol_tlv, -65625, 375, 0);
 static const DECLARE_TLV_DB_SCALE(in_vol_tlv, -3450, 150, 0);
@@ -313,6 +347,10 @@ static SOC_ENUM_SINGLE_DECL(rt5651_if2_dac_enum, RT5651_DIG_INF_DATA,
 
 static SOC_ENUM_SINGLE_DECL(rt5651_if2_adc_enum, RT5651_DIG_INF_DATA,
 				RT5651_IF2_ADC_SEL_SFT, rt5651_data_select);
+
+static const char * const rt5651_asrc_mode[] = {"Disable", "Enable"};
+
+static SOC_ENUM_SINGLE_DECL(rt5651_asrc_enum, 0, 0, rt5651_asrc_mode);
 
 static const struct snd_kcontrol_new rt5651_snd_controls[] = {
 	/* Headphone Output Volume */
@@ -354,6 +392,9 @@ static const struct snd_kcontrol_new rt5651_snd_controls[] = {
 			RT5651_ADC_L_BST_SFT, RT5651_ADC_R_BST_SFT,
 			3, 0, adc_bst_tlv),
 
+	/* RT5651 ASRC Switch */
+	SOC_ENUM_EXT("RT5651 ASRC Switch", rt5651_asrc_enum,
+		     rt5651_asrc_get, rt5651_asrc_put),
 	/* ASRC */
 	SOC_SINGLE("IF1 ASRC Switch", RT5651_PLL_MODE_1,
 		RT5651_STO1_T_SFT, 1, 0),
@@ -1087,6 +1128,9 @@ static const struct snd_soc_dapm_route rt5651_dapm_routes[] = {
 	{"IN1P", NULL, "LDO"},
 	{"IN2P", NULL, "LDO"},
 	{"IN3P", NULL, "LDO"},
+	{"BST1", NULL, "micbias1"},
+	{"BST2", NULL, "micbias1"},
+	{"BST3", NULL, "micbias1"},
 
 	{"IN1P", NULL, "MIC1"},
 	{"IN2P", NULL, "MIC2"},

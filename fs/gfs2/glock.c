@@ -136,9 +136,9 @@ static void gfs2_glock_dealloc(struct rcu_head *rcu)
 	}
 }
 
-void gfs2_glock_free(struct gfs2_glock *gl)
+static void gfs2_glock_dealloc(struct rcu_head *rcu)
 {
-	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
+	struct gfs2_glock *gl = container_of(rcu, struct gfs2_glock, gl_rcu);
 
 	rhashtable_remove_fast(&gl_hash_table, &gl->gl_node, ht_parms);
 	smp_mb();
@@ -1978,6 +1978,7 @@ static void *gfs2_glock_seq_start(struct seq_file *seq, loff_t *pos)
 
 	gfs2_glock_iter_next(gi, n);
 	gi->last_pos = *pos;
+
 	return gi->gl;
 }
 

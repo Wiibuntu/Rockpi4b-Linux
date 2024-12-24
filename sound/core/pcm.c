@@ -129,6 +129,7 @@ static int snd_pcm_control_ioctl(struct snd_card *card,
 				return -EFAULT;
 			if (stream < 0 || stream > 1)
 				return -EINVAL;
+			stream = array_index_nospec(stream, 2);
 			if (get_user(subdevice, &info->subdevice))
 				return -EFAULT;
 			mutex_lock(&register_mutex);
@@ -873,6 +874,14 @@ int snd_pcm_new_internal(struct snd_card *card, const char *id, int device,
 			true, rpcm);
 }
 EXPORT_SYMBOL(snd_pcm_new_internal);
+
+static void free_chmap(struct snd_pcm_str *pstr)
+{
+	if (pstr->chmap_kctl) {
+		snd_ctl_remove(pstr->pcm->card, pstr->chmap_kctl);
+		pstr->chmap_kctl = NULL;
+	}
+}
 
 static void free_chmap(struct snd_pcm_str *pstr)
 {

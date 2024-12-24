@@ -108,6 +108,12 @@
 #define SLAB_KASAN		0
 #endif
 
+#ifdef CONFIG_KASAN
+#define SLAB_KASAN		0x08000000UL
+#else
+#define SLAB_KASAN		0x00000000UL
+#endif
+
 /* The following flags affect the page allocator grouping pages by mobility */
 /* Objects are reclaimable */
 #define SLAB_RECLAIM_ACCOUNT	((slab_flags_t __force)0x00020000U)
@@ -162,6 +168,18 @@ void memcg_destroy_kmem_caches(struct mem_cgroup *);
 #define KMEM_CACHE(__struct, __flags)					\
 		kmem_cache_create(#__struct, sizeof(struct __struct),	\
 			__alignof__(struct __struct), (__flags), NULL)
+
+#ifdef CONFIG_HAVE_HARDENED_USERCOPY_ALLOCATOR
+const char *__check_heap_object(const void *ptr, unsigned long n,
+				struct page *page);
+#else
+static inline const char *__check_heap_object(const void *ptr,
+					      unsigned long n,
+					      struct page *page)
+{
+	return NULL;
+}
+#endif
 
 /*
  * To whitelist a single field for copying to/from usercopy, use this

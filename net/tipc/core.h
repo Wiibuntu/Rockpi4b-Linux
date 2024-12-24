@@ -119,6 +119,9 @@ struct tipc_net {
 	/* Name dist queue */
 	struct list_head dist_queue;
 
+	/* Name dist queue */
+	struct list_head dist_queue;
+
 	/* Topology subscription server */
 	struct tipc_topsrv *topsrv;
 	atomic_t subscription_count;

@@ -1,0 +1,38 @@
+--- include/linux/slab.h
++++ include/linux/slab.h
+@@ -221,7 +239,7 @@ size_t ksize(const void *);
+  * (PAGE_SIZE*2).  Larger requests are passed to the page allocator.
+  */
+ #define KMALLOC_SHIFT_HIGH	(PAGE_SHIFT + 1)
+-#define KMALLOC_SHIFT_MAX	(MAX_ORDER + PAGE_SHIFT)
++#define KMALLOC_SHIFT_MAX	(MAX_ORDER + PAGE_SHIFT - 1)
+ #ifndef KMALLOC_SHIFT_LOW
+ #define KMALLOC_SHIFT_LOW	3
+ #endif
+@@ -234,7 +252,7 @@ size_t ksize(const void *);
+  * be allocated from the same page.
+  */
+ #define KMALLOC_SHIFT_HIGH	PAGE_SHIFT
+-#define KMALLOC_SHIFT_MAX	30
++#define KMALLOC_SHIFT_MAX	(MAX_ORDER + PAGE_SHIFT - 1)
+ #ifndef KMALLOC_SHIFT_LOW
+ #define KMALLOC_SHIFT_LOW	3
+ #endif
+@@ -374,7 +392,7 @@ static __always_inline void *kmem_cache_alloc_trace(struct kmem_cache *s,
+ {
+ 	void *ret = kmem_cache_alloc(s, flags);
+ 
+-	kasan_kmalloc(s, ret, size);
++	kasan_kmalloc(s, ret, size, flags);
+ 	return ret;
+ }
+ 
+@@ -385,7 +403,7 @@ kmem_cache_alloc_node_trace(struct kmem_cache *s,
+ {
+ 	void *ret = kmem_cache_alloc_node(s, gfpflags, node);
+ 
+-	kasan_kmalloc(s, ret, size);
++	kasan_kmalloc(s, ret, size, gfpflags);
+ 	return ret;
+ }
+ #endif /* CONFIG_TRACING */

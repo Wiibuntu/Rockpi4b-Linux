@@ -807,7 +807,6 @@ static bool rt6_is_gw_or_nonexthop(const struct rt6_info *rt)
 int rt6_route_rcv(struct net_device *dev, u8 *opt, int len,
 		  const struct in6_addr *gwaddr)
 {
-	struct net *net = dev_net(dev);
 	struct route_info *rinfo = (struct route_info *) opt;
 	struct in6_addr prefix_buf, *prefix;
 	unsigned int pref;
@@ -3409,7 +3408,7 @@ struct rt6_info *rt6_add_dflt_router(const struct in6_addr *gwaddr,
 				     unsigned int pref)
 {
 	struct fib6_config cfg = {
-		.fc_table	= l3mdev_fib_table(dev) ? : RT6_TABLE_DFLT,
+		.fc_table	= l3mdev_fib_table(dev) ? : addrconf_rt_table(dev, RT6_TABLE_DFLT),
 		.fc_metric	= IP6_RT_PRIO_USER,
 		.fc_ifindex	= dev->ifindex,
 		.fc_flags	= RTF_GATEWAY | RTF_ADDRCONF | RTF_DEFAULT |
@@ -4511,7 +4510,7 @@ static int rt6_fill_node(struct net *net,
 		table = rt->rt6i_table->tb6_id;
 	else
 		table = RT6_TABLE_UNSPEC;
-	rtm->rtm_table = table;
+	rtm->rtm_table = table < 256 ? table : RT_TABLE_COMPAT;
 	if (nla_put_u32(skb, RTA_TABLE, table))
 		goto nla_put_failure;
 	if (rt->rt6i_flags & RTF_REJECT) {
@@ -4718,6 +4717,12 @@ static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 	else
 		fl6.flowi6_uid = iif ? INVALID_UID : current_uid();
 
+	if (tb[RTA_UID])
+		fl6.flowi6_uid = make_kuid(current_user_ns(),
+					   nla_get_u32(tb[RTA_UID]));
+	else
+		fl6.flowi6_uid = iif ? INVALID_UID : current_uid();
+
 	if (iif) {
 		struct net_device *dev;
 		int flags = 0;
@@ -4841,6 +4846,16 @@ static int ip6_route_dev_notify(struct notifier_block *this,
 		net->ipv6.ip6_prohibit_entry->rt6i_idev = in6_dev_get(dev);
 		net->ipv6.ip6_blk_hole_entry->dst.dev = dev;
 		net->ipv6.ip6_blk_hole_entry->rt6i_idev = in6_dev_get(dev);
+#endif
+	 } else if (event == NETDEV_UNREGISTER &&
+		    dev->reg_state != NETREG_UNREGISTERED) {
+		/* NETDEV_UNREGISTER could be fired for multiple times by
+		 * netdev_wait_allrefs(). Make sure we only call this once.
+		 */
+		in6_dev_put(net->ipv6.ip6_null_entry->rt6i_idev);
+#ifdef CONFIG_IPV6_MULTIPLE_TABLES
+		in6_dev_put(net->ipv6.ip6_prohibit_entry->rt6i_idev);
+		in6_dev_put(net->ipv6.ip6_blk_hole_entry->rt6i_idev);
 #endif
 	 } else if (event == NETDEV_UNREGISTER &&
 		    dev->reg_state != NETREG_UNREGISTERED) {

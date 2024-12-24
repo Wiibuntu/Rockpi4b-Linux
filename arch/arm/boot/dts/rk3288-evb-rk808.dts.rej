@@ -1,0 +1,54 @@
+--- arch/arm/boot/dts/rk3288-evb-rk808.dts
++++ arch/arm/boot/dts/rk3288-evb-rk808.dts
+@@ -51,12 +52,39 @@
+ 		clock-output-names = "ext_gmac";
+ 		#clock-cells = <0>;
+ 	};
++
++	sdio_pwrseq: sdio-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		clocks = <&rk808 1>;
++		clock-names = "ext_clock";
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_enable_h>;
++
++		/*
++		 * On the module itself this is one of these (depending
++		 * on the actual card populated):
++		 * - SDIO_RESET_L_WL_REG_ON
++		 * - PDN (power down when low)
++		 */
++		reset-gpios = <&gpio4 28 GPIO_ACTIVE_LOW>;
++	};
++
++	xin32k: xin32k {
++		compatible = "fixed-clock";
++		clock-frequency = <32768>;
++		clock-output-names = "xin32k";
++		#clock-cells = <0>;
++	};
+ };
+ 
+ &cpu0 {
+ 	cpu0-supply = <&vdd_cpu>;
+ };
+ 
++&hdmi_analog_sound {
++	status = "okay";
++};
++
+ &i2c0 {
+ 	clock-frequency = <400000>;
+ 
+@@ -247,6 +276,11 @@
+ 	};
+ };
+ 
++&edp_panel {
++	backlight = <&backlight>;
++	power-supply = <&vcc_lcd>;
++};
++
+ &gmac {
+ 	phy-supply = <&vcc_phy>;
+ 	phy-mode = "rgmii";

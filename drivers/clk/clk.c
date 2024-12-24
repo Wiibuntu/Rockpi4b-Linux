@@ -711,6 +711,13 @@ static void clk_core_unprepare_lock(struct clk_core *core)
 	clk_prepare_unlock();
 }
 
+static void clk_core_unprepare_lock(struct clk_core *core)
+{
+	clk_prepare_lock();
+	clk_core_unprepare(core);
+	clk_prepare_unlock();
+}
+
 /**
  * clk_unprepare - undo preparation of a clock source
  * @clk: the clk being unprepared
@@ -781,6 +788,17 @@ static int clk_core_prepare_lock(struct clk_core *core)
 	return ret;
 }
 
+static int clk_core_prepare_lock(struct clk_core *core)
+{
+	int ret;
+
+	clk_prepare_lock();
+	ret = clk_core_prepare(core);
+	clk_prepare_unlock();
+
+	return ret;
+}
+
 /**
  * clk_prepare - prepare a clock source
  * @clk: the clk being prepared
@@ -826,6 +844,15 @@ static void clk_core_disable(struct clk_core *core)
 	trace_clk_disable_complete_rcuidle(core);
 
 	clk_core_disable(core->parent);
+}
+
+static void clk_core_disable_lock(struct clk_core *core)
+{
+	unsigned long flags;
+
+	flags = clk_enable_lock();
+	clk_core_disable(core);
+	clk_enable_unlock(flags);
 }
 
 static void clk_core_disable_lock(struct clk_core *core)
@@ -891,6 +918,18 @@ static int clk_core_enable(struct clk_core *core)
 
 	core->enable_count++;
 	return 0;
+}
+
+static int clk_core_enable_lock(struct clk_core *core)
+{
+	unsigned long flags;
+	int ret;
+
+	flags = clk_enable_lock();
+	ret = clk_core_enable(core);
+	clk_enable_unlock(flags);
+
+	return ret;
 }
 
 static int clk_core_enable_lock(struct clk_core *core)
@@ -1735,6 +1774,9 @@ static struct clk_core *clk_propagate_rate_change(struct clk_core *core,
 	return fail_clk;
 }
 
+static int clk_core_set_rate_nolock(struct clk_core *core,
+				    unsigned long req_rate);
+
 /*
  * walk down a subtree and set the new rates notifying the rate
  * change on the way
@@ -1791,6 +1833,9 @@ static void clk_change_rate(struct clk_core *core)
 	if (core->flags & CLK_OPS_PARENT_ENABLE)
 		clk_core_prepare_enable(parent);
 
+	if (core->flags & CLK_OPS_PARENT_ENABLE)
+		clk_core_prepare_enable(parent);
+
 	trace_clk_set_rate(core, core->new_rate);
 
 	if (!skip_set_rate && core->ops->set_rate)
@@ -1799,6 +1844,18 @@ static void clk_change_rate(struct clk_core *core)
 	trace_clk_set_rate_complete(core, core->new_rate);
 
 	core->rate = clk_recalc(core, best_parent_rate);
+
+	if (core->flags & CLK_SET_RATE_UNGATE) {
+		unsigned long flags;
+
+		flags = clk_enable_lock();
+		clk_core_disable(core);
+		clk_enable_unlock(flags);
+		clk_core_unprepare(core);
+	}
+
+	if (core->flags & CLK_OPS_PARENT_ENABLE)
+		clk_core_disable_unprepare(parent);
 
 	if (core->flags & CLK_SET_RATE_UNGATE) {
 		unsigned long flags;
@@ -1876,8 +1933,10 @@ static int clk_core_set_rate_nolock(struct clk_core *core,
 	rate = clk_core_req_round_rate_nolock(core, req_rate);
 
 	/* bail early if nothing to do */
-	if (rate == clk_core_get_rate_nolock(core))
+	if (rate == clk_core_get_rate_nolock(core)) {
+		core->req_rate = req_rate;
 		return 0;
+	}
 
 	/* fail on a direct rate set of a protected provider */
 	if (clk_core_rate_is_protected(core))
@@ -2292,6 +2351,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (clk->exclusive_count)
 		clk_core_rate_protect(clk->core);
 
+out:
 	clk_prepare_unlock();
 
 	return ret;
@@ -2609,6 +2669,211 @@ static int possible_parents_show(struct seq_file *s, void *data)
 }
 DEFINE_SHOW_ATTRIBUTE(possible_parents);
 
+static int clock_debug_rate_set(void *data, u64 val)
+{
+	struct clk_core *core = data;
+	int ret;
+
+	ret = clk_set_rate(core->hw->clk, val);
+	if (ret)
+		pr_err("clk_set_rate(%lu) failed (%d)\n",
+		       (unsigned long)val, ret);
+
+	return ret;
+}
+
+static int clock_debug_rate_get(void *data, u64 *val)
+{
+	struct clk_core *core = data;
+
+	*val = core->hw->core->rate;
+
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(clock_rate_fops, clock_debug_rate_get,
+			clock_debug_rate_set, "%llu\n");
+
+static int possible_parents_show(struct seq_file *s, void *data)
+{
+	struct clk_core *core = s->private;
+	int i;
+
+	for (i = 0; i < core->num_parents - 1; i++)
+		seq_printf(s, "%s ", core->parent_names[i]);
+
+	seq_printf(s, "%s\n", core->parent_names[i]);
+
+	return 0;
+}
+
+static int possible_parents_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, possible_parents_show, inode->i_private);
+}
+
+static const struct file_operations possible_parents_fops = {
+	.open		= possible_parents_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static ssize_t clock_parent_read(struct file *filp, char __user *ubuf,
+				 size_t cnt, loff_t *ppos)
+{
+	char name[256] = {0};
+	struct clk_core *core = filp->private_data;
+	struct clk_core *p = core->parent;
+
+	snprintf(name, sizeof(name), "%s\n", p ? p->name : "None\n");
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, name, strlen(name));
+}
+
+static ssize_t clock_parent_write(struct file *filp, const char __user *buf,
+				  size_t cnt, loff_t *ppos)
+{
+	char temp[256] = {0};
+	char name[256] = {0};
+	struct clk_core *core = filp->private_data;
+	unsigned int ret, i;
+
+	if (copy_from_user(temp, buf, cnt))
+		return -EINVAL;
+
+	ret = sscanf(temp, "%s", name);
+	if (ret != 1)
+		return -EINVAL;
+
+	if (core->num_parents <= 1)
+		return cnt;
+
+	for (i = 0; i < core->num_parents; i++) {
+		if (!core->parents[i])
+			continue;
+		if (!strcmp(core->parents[i]->name, name)) {
+			if (core->parents[i] != core->parent)
+				clk_core_set_parent(core, core->parents[i]);
+			break;
+		}
+	}
+
+	return cnt;
+}
+
+static const struct file_operations clock_parent_fops = {
+	.open	= simple_open,
+	.read	= clock_parent_read,
+	.write	= clock_parent_write,
+};
+
+static int clock_debug_enable_set(void *data, u64 val)
+{
+	struct clk_core *core = data;
+	int rc = 0;
+
+	if (val)
+		rc = clk_prepare_enable(core->hw->clk);
+	else
+		clk_disable_unprepare(core->hw->clk);
+
+	return rc;
+}
+
+static int clock_debug_enable_get(void *data, u64 *val)
+{
+	struct clk_core *core = data;
+	int enabled = 0;
+
+	enabled = core->enable_count;
+
+	*val = enabled;
+
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(clock_enable_fops, clock_debug_enable_get,
+			clock_debug_enable_set, "%lld\n");
+
+#define clock_debug_output(m, c, fmt, ...)		\
+do {							\
+	if (m)						\
+		seq_printf(m, fmt, ##__VA_ARGS__);	\
+	else if (c)					\
+		pr_cont(fmt, ##__VA_ARGS__);		\
+	else						\
+		pr_info(fmt, ##__VA_ARGS__);		\
+} while (0)
+
+static int clock_debug_print_clock(struct clk_core *c, struct seq_file *s)
+{
+	char *start = "";
+	struct clk *clk;
+
+	if (!c || !c->prepare_count)
+		return 0;
+
+	clk = c->hw->clk;
+
+	clock_debug_output(s, 0, "\t");
+
+	do {
+		clock_debug_output(s, 1, "%s%s:%u:%u [%ld]", start,
+				   clk->core->name,
+				   clk->core->prepare_count,
+				   clk->core->enable_count,
+				   clk->core->rate);
+		start = " -> ";
+	} while ((clk = clk_get_parent(clk)));
+
+	clock_debug_output(s, 1, "\n");
+
+	return 1;
+}
+
+/*
+ * clock_debug_print_enabled_clocks() - Print names of enabled clocks
+ */
+static void clock_debug_print_enabled_clocks(struct seq_file *s)
+{
+	struct clk_core *core;
+	int cnt = 0;
+
+	clock_debug_output(s, 0, "Enabled clocks:\n");
+
+	mutex_lock(&clk_debug_lock);
+
+	hlist_for_each_entry(core, &clk_debug_list, debug_node)
+		cnt += clock_debug_print_clock(core, s);
+
+	mutex_unlock(&clk_debug_lock);
+
+	if (cnt)
+		clock_debug_output(s, 0, "Enabled clock count: %d\n", cnt);
+	else
+		clock_debug_output(s, 0, "No clocks enabled.\n");
+}
+
+static int enabled_clocks_show(struct seq_file *s, void *unused)
+{
+	clock_debug_print_enabled_clocks(s);
+
+	return 0;
+}
+
+static int enabled_clocks_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, enabled_clocks_show, inode->i_private);
+}
+
+static const struct file_operations clk_enabled_list_fops = {
+	.open		= enabled_clocks_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
 static int clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
 {
 	struct dentry *d;
@@ -2669,6 +2934,19 @@ static int clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
 		if (!d)
 			goto err_out;
 	}
+
+	if (core->num_parents > 1) {
+		d = debugfs_create_file("clk_possible_parents", S_IRUGO,
+					core->dentry, core,
+					&possible_parents_fops);
+		if (!d)
+			goto err_out;
+	}
+
+	d = debugfs_create_file("clk_parent", S_IRUGO  | S_IWUSR, core->dentry,
+				core, &clock_parent_fops);
+	if (!d)
+		goto err_out;
 
 	if (core->ops->debug_init) {
 		ret = core->ops->debug_init(core->hw, core->dentry);
@@ -2773,6 +3051,11 @@ static int __init clk_debug_init(void)
 
 	d = debugfs_create_file("clk_orphan_dump", 0444, rootdir,
 				&orphan_list, &clk_dump_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("clk_enabled_list", S_IRUGO, rootdir,
+				&clk_debug_list, &clk_enabled_list_fops);
 	if (!d)
 		return -ENOMEM;
 
@@ -2939,7 +3222,7 @@ static int __clk_core_init(struct clk_core *core)
 		rate = core->parent->rate;
 	else
 		rate = 0;
-	core->rate = core->req_rate = rate;
+	core->rate = rate;
 
 	/*
 	 * Enable CLK_IS_CRITICAL clocks so newly added critical clocks
@@ -3013,6 +3296,19 @@ struct clk *__clk_create_clk(struct clk_hw *hw, const char *dev_id,
 	clk_prepare_unlock();
 
 	return clk;
+}
+
+struct clk *__clk_create_clk(struct clk_hw *hw, const char *dev_id,
+			     const char *con_id, bool with_orphans)
+{
+	/* This is to allow this function to be chained to others */
+	if (!hw || IS_ERR(hw))
+		return (struct clk *) hw;
+
+	if (hw->core->orphan && !with_orphans)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	return clk_hw_create_clk(hw, dev_id, con_id);
 }
 
 void __clk_free_clk(struct clk *clk)
@@ -3100,7 +3396,7 @@ struct clk *clk_register(struct device *dev, struct clk_hw *hw)
 
 	INIT_HLIST_HEAD(&core->clks);
 
-	hw->clk = __clk_create_clk(hw, NULL, NULL);
+	hw->clk = clk_hw_create_clk(hw, NULL, NULL);
 	if (IS_ERR(hw->clk)) {
 		ret = PTR_ERR(hw->clk);
 		goto fail_parents;
@@ -3396,6 +3692,7 @@ int __clk_get(struct clk *clk)
 
 void __clk_put(struct clk *clk)
 {
+	unsigned long rate;
 	struct module *owner;
 
 	if (!clk || WARN_ON_ONCE(IS_ERR(clk)))
@@ -3416,9 +3713,13 @@ void __clk_put(struct clk *clk)
 	}
 
 	hlist_del(&clk->clks_node);
-	if (clk->min_rate > clk->core->req_rate ||
-	    clk->max_rate < clk->core->req_rate)
-		clk_core_set_rate_nolock(clk->core, clk->core->req_rate);
+
+	rate = clk->core->req_rate;
+	if (!rate)
+		rate = clk->core->rate;
+
+	if (clk->min_rate > rate || clk->max_rate < rate)
+		clk_core_set_rate_nolock(clk->core, rate);
 
 	owner = clk->core->owner;
 	kref_put(&clk->core->ref, __clk_release);
@@ -3762,7 +4063,8 @@ __of_clk_get_hw_from_provider(struct of_clk_provider *provider,
 }
 
 struct clk *__of_clk_get_from_provider(struct of_phandle_args *clkspec,
-				       const char *dev_id, const char *con_id)
+				       const char *dev_id, const char *con_id,
+				       bool with_orphans)
 {
 	struct of_clk_provider *provider;
 	struct clk *clk = ERR_PTR(-EPROBE_DEFER);
@@ -3803,7 +4105,25 @@ struct clk *__of_clk_get_from_provider(struct of_phandle_args *clkspec,
  */
 struct clk *of_clk_get_from_provider(struct of_phandle_args *clkspec)
 {
-	return __of_clk_get_from_provider(clkspec, NULL, __func__);
+	return __of_clk_get_from_provider(clkspec, NULL, __func__, false);
+}
+
+/**
+ * of_clk_get_from_provider_with_orphans() - Lookup clock from a clock provider
+ * @clkspec: pointer to a clock specifier data structure
+ *
+ * This function looks up a struct clk from the registered list of clock
+ * providers, an input is a clock specifier data structure as returned
+ * from the of_parse_phandle_with_args() function call.
+ *
+ * The difference to of_clk_get_from_provider() is that this function will
+ * also successfully lookup orphan-clocks, as it in some cases may be
+ * necessary to access such orphan-clocks as well.
+ */
+struct clk *
+of_clk_get_from_provider_with_orphans(struct of_phandle_args *clkspec)
+{
+	return __of_clk_get_from_provider(clkspec, NULL, __func__, true);
 }
 EXPORT_SYMBOL_GPL(of_clk_get_from_provider);
 

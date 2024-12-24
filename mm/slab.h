@@ -528,4 +528,6 @@ static inline int cache_random_seq_create(struct kmem_cache *cachep,
 static inline void cache_random_seq_destroy(struct kmem_cache *cachep) { }
 #endif /* CONFIG_SLAB_FREELIST_RANDOM */
 
+void ___cache_free(struct kmem_cache *cache, void *x, unsigned long addr);
+
 #endif /* MM_SLAB_H */

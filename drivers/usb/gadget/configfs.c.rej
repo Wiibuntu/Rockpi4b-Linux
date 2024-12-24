@@ -1,0 +1,47 @@
+--- drivers/usb/gadget/configfs.c
++++ drivers/usb/gadget/configfs.c
+@@ -297,10 +328,11 @@ static ssize_t gadget_dev_desc_UDC_store(struct config_item *item,
+ 
+ 	mutex_lock(&gi->lock);
+ 
+-	if (!strlen(name)) {
++	if (!strlen(name) || strcmp(name, "none") == 0) {
+ 		ret = unregister_gadget(gi);
+ 		if (ret)
+ 			goto err;
++		kfree(name);
+ 	} else {
+ 		if (gi->udc_name) {
+ 			ret = -EBUSY;
+@@ -1668,7 +1918,6 @@ static struct config_group *gadgets_make(
+ 	gi = kzalloc(sizeof(*gi), GFP_KERNEL);
+ 	if (!gi)
+ 		return ERR_PTR(-ENOMEM);
+-
+ 	gi->group.default_groups = gi->default_groups;
+ 	gi->group.default_groups[0] = &gi->functions_group;
+ 	gi->group.default_groups[1] = &gi->configs_group;
+@@ -1707,9 +1956,13 @@ static struct config_group *gadgets_make(
+ 	if (!gi->composite.gadget_driver.function)
+ 		goto err;
+ 
++	if (android_device_create(gi) < 0)
++		goto err;
++
+ 	config_group_init_type_name(&gi->group, name,
+ 				&gadget_root_type);
+ 	return &gi->group;
++
+ err:
+ 	kfree(gi);
+ 	return ERR_PTR(-ENOMEM);
+@@ -1745,7 +1999,9 @@ void unregister_gadget_item(struct config_item *item)
+ {
+ 	struct gadget_info *gi = to_gadget_info(item);
+ 
++	mutex_lock(&gi->lock);
+ 	unregister_gadget(gi);
++	mutex_unlock(&gi->lock);
+ }
+ EXPORT_SYMBOL_GPL(unregister_gadget_item);
+ 

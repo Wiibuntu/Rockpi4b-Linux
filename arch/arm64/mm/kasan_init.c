@@ -165,6 +165,21 @@ void __init kasan_copy_shadow(pgd_t *pgdir)
 	} while (pgdp++, pgdp_new++, pgdp != pgdp_end);
 }
 
+/*
+ * Copy the current shadow region into a new pgdir.
+ */
+void __init kasan_copy_shadow(pgd_t *pgdir)
+{
+	pgd_t *pgd, *pgd_new, *pgd_end;
+
+	pgd = pgd_offset_k(KASAN_SHADOW_START);
+	pgd_end = pgd_offset_k(KASAN_SHADOW_END);
+	pgd_new = pgd_offset_raw(pgdir, KASAN_SHADOW_START);
+	do {
+		set_pgd(pgd_new, *pgd);
+	} while (pgd++, pgd_new++, pgd != pgd_end);
+}
+
 static void __init clear_pgds(unsigned long start,
 			unsigned long end)
 {

@@ -1,0 +1,54 @@
+--- drivers/video/backlight/backlight.c
++++ drivers/video/backlight/backlight.c
+@@ -167,18 +170,10 @@ static ssize_t brightness_show(struct device *dev,
+ 	return sprintf(buf, "%d\n", bd->props.brightness);
+ }
+ 
+-static ssize_t brightness_store(struct device *dev,
+-		struct device_attribute *attr, const char *buf, size_t count)
++int backlight_device_set_brightness(struct backlight_device *bd,
++				    unsigned long brightness)
+ {
+-	int rc;
+-	struct backlight_device *bd = to_backlight_device(dev);
+-	unsigned long brightness;
+-
+-	rc = kstrtoul(buf, 0, &brightness);
+-	if (rc)
+-		return rc;
+-
+-	rc = -ENXIO;
++	int rc = -ENXIO;
+ 
+ 	mutex_lock(&bd->ops_lock);
+ 	if (bd->ops) {
+@@ -188,7 +183,7 @@ static ssize_t brightness_store(struct device *dev,
+ 			pr_debug("set brightness to %lu\n", brightness);
+ 			bd->props.brightness = brightness;
+ 			backlight_update_status(bd);
+-			rc = count;
++			rc = 0;
+ 		}
+ 	}
+ 	mutex_unlock(&bd->ops_lock);
+@@ -400,7 +412,7 @@ struct backlight_device *backlight_device_register(const char *name,
+ }
+ EXPORT_SYMBOL(backlight_device_register);
+ 
+-bool backlight_device_registered(enum backlight_type type)
++struct backlight_device *backlight_device_get_by_type(enum backlight_type type)
+ {
+ 	bool found = false;
+ 	struct backlight_device *bd;
+@@ -414,9 +426,9 @@ bool backlight_device_registered(enum backlight_type type)
+ 	}
+ 	mutex_unlock(&backlight_dev_list_mutex);
+ 
+-	return found;
++	return found ? bd : NULL;
+ }
+-EXPORT_SYMBOL(backlight_device_registered);
++EXPORT_SYMBOL(backlight_device_get_by_type);
+ 
+ /**
+  * backlight_device_unregister - unregisters a backlight device object.

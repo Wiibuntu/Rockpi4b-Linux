@@ -7,6 +7,8 @@
 
 #include <asm/cpufeature.h>
 
+#include <asm/cpufeature.h>
+
 #define MWAIT_SUBSTATE_MASK		0xf
 #define MWAIT_CSTATE_MASK		0xf
 #define MWAIT_SUBSTATE_SIZE		4

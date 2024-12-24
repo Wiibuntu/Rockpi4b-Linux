@@ -77,7 +77,6 @@ struct vsock_sock {
 
 s64 vsock_stream_has_data(struct vsock_sock *vsk);
 s64 vsock_stream_has_space(struct vsock_sock *vsk);
-void vsock_pending_work(struct work_struct *work);
 struct sock *__vsock_create(struct net *net,
 			    struct socket *sock,
 			    struct sock *parent,
@@ -101,6 +100,9 @@ struct vsock_transport {
 	int (*init)(struct vsock_sock *, struct vsock_sock *);
 	void (*destruct)(struct vsock_sock *);
 	void (*release)(struct vsock_sock *);
+
+	/* Cancel all pending packets sent on vsock. */
+	int (*cancel_pkt)(struct vsock_sock *vsk);
 
 	/* Cancel all pending packets sent on vsock. */
 	int (*cancel_pkt)(struct vsock_sock *vsk);
@@ -171,6 +173,9 @@ static inline int vsock_core_init(const struct vsock_transport *t)
 	return __vsock_core_init(t, THIS_MODULE);
 }
 void vsock_core_exit(void);
+
+/* The transport may downcast this to access transport-specific functions */
+const struct vsock_transport *vsock_core_get_transport(void);
 
 /* The transport may downcast this to access transport-specific functions */
 const struct vsock_transport *vsock_core_get_transport(void);

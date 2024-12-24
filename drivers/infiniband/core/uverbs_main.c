@@ -51,6 +51,8 @@
 #include <rdma/ib.h>
 #include <rdma/uverbs_std_types.h>
 
+#include <rdma/ib.h>
+
 #include "uverbs.h"
 #include "core_priv.h"
 #include "rdma_core.h"

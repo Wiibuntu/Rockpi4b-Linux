@@ -670,6 +670,9 @@ static struct net_device *find_outdev(struct net *net,
 	if (IS_ERR(dev))
 		return dev;
 
+	if (IS_ERR(dev))
+		return dev;
+
 	/* The caller is holding rtnl anyways, so release the dev reference */
 	dev_put(dev);
 

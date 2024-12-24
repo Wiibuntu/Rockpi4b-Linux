@@ -1,0 +1,98 @@
+--- fs/open.c
++++ fs/open.c
+@@ -60,17 +60,24 @@ int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
+ 
+ 	mutex_lock(&dentry->d_inode->i_mutex);
+ 	/* Note any delegations or leases have already been broken: */
+-	ret = notify_change(dentry, &newattrs, NULL);
++	ret = notify_change2(mnt, dentry, &newattrs, NULL);
+ 	mutex_unlock(&dentry->d_inode->i_mutex);
+ 	return ret;
+ }
++int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
++	struct file *filp)
++{
++	return do_truncate2(NULL, dentry, length, time_attrs, filp);
++}
+ 
+ long vfs_truncate(struct path *path, loff_t length)
+ {
+ 	struct inode *inode;
++	struct vfsmount *mnt;
+ 	long error;
+ 
+ 	inode = path->dentry->d_inode;
++	mnt = path->mnt;
+ 
+ 	/* For directories it's -EISDIR, for other non-regulars - -EINVAL */
+ 	if (S_ISDIR(inode->i_mode))
+@@ -449,6 +460,7 @@ SYSCALL_DEFINE1(fchdir, unsigned int, fd)
+ {
+ 	struct fd f = fdget_raw(fd);
+ 	struct inode *inode;
++	struct vfsmount *mnt;
+ 	int error = -EBADF;
+ 
+ 	error = -EBADF;
+@@ -456,12 +468,13 @@ SYSCALL_DEFINE1(fchdir, unsigned int, fd)
+ 		goto out;
+ 
+ 	inode = file_inode(f.file);
++	mnt = f.file->f_path.mnt;
+ 
+ 	error = -ENOTDIR;
+ 	if (!S_ISDIR(inode->i_mode))
+ 		goto out_putf;
+ 
+-	error = inode_permission(inode, MAY_EXEC | MAY_CHDIR);
++	error = inode_permission2(mnt, inode, MAY_EXEC | MAY_CHDIR);
+ 	if (!error)
+ 		set_fs_pwd(current->fs, &f.file->f_path);
+ out_putf:
+@@ -600,7 +613,7 @@ retry_deleg:
+ 	mutex_lock(&inode->i_mutex);
+ 	error = security_path_chown(path, uid, gid);
+ 	if (!error)
+-		error = notify_change(path->dentry, &newattrs, &delegated_inode);
++		error = notify_change2(path->mnt, path->dentry, &newattrs, &delegated_inode);
+ 	mutex_unlock(&inode->i_mutex);
+ 	if (delegated_inode) {
+ 		error = break_deleg_wait(&delegated_inode);
+@@ -844,16 +857,12 @@ EXPORT_SYMBOL(file_path);
+ int vfs_open(const struct path *path, struct file *file,
+ 	     const struct cred *cred)
+ {
+-	struct dentry *dentry = path->dentry;
+-	struct inode *inode = dentry->d_inode;
++	struct inode *inode = vfs_select_inode(path->dentry, file->f_flags);
+ 
+-	file->f_path = *path;
+-	if (dentry->d_flags & DCACHE_OP_SELECT_INODE) {
+-		inode = dentry->d_op->d_select_inode(dentry, file->f_flags);
+-		if (IS_ERR(inode))
+-			return PTR_ERR(inode);
+-	}
++	if (IS_ERR(inode))
++		return PTR_ERR(inode);
+ 
++	file->f_path = *path;
+ 	return do_dentry_open(file, inode, NULL, cred);
+ }
+ 
+@@ -1005,14 +1020,12 @@ struct file *filp_open(const char *filename, int flags, umode_t mode)
+ EXPORT_SYMBOL(filp_open);
+ 
+ struct file *file_open_root(struct dentry *dentry, struct vfsmount *mnt,
+-			    const char *filename, int flags)
++			    const char *filename, int flags, umode_t mode)
+ {
+ 	struct open_flags op;
+-	int err = build_open_flags(flags, 0, &op);
++	int err = build_open_flags(flags, mode, &op);
+ 	if (err)
+ 		return ERR_PTR(err);
+-	if (flags & O_CREAT)
+-		return ERR_PTR(-EINVAL);
+ 	return do_file_open_root(dentry, mnt, filename, &op);
+ }
+ EXPORT_SYMBOL(file_open_root);

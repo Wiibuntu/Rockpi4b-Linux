@@ -306,6 +306,10 @@ __create_hw_context(struct drm_i915_private *dev_priv,
 			ret = -ENOMEM;
 			goto err_pid;
 		}
+
+		/* Force the GPU state to be reinitialised on enabling */
+		if (ring->default_context)
+			ring->default_context->legacy_hw_ctx.initialized = false;
 	}
 
 	/* NB: Mark all slices as needing a remap so that when the context first

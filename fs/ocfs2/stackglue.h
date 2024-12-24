@@ -303,4 +303,7 @@ int ocfs2_is_o2cb_active(void);
 
 extern struct kset *ocfs2_kset;
 
+/* In ocfs2_downconvert_lock(), we need to know which stack we are using */
+int ocfs2_is_o2cb_active(void);
+
 #endif  /* STACKGLUE_H */

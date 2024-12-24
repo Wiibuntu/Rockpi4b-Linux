@@ -1,0 +1,10 @@
+--- drivers/base/dd.c
++++ drivers/base/dd.c
+@@ -691,6 +685,7 @@ static void __device_release_driver(struct device *dev)
+ 			dev->pm_domain->dismiss(dev);
+ 
+ 		klist_remove(&dev->p->knode_driver);
++		device_pm_check_callbacks(dev);
+ 		if (dev->bus)
+ 			blocking_notifier_call_chain(&dev->bus->p->bus_notifier,
+ 						     BUS_NOTIFY_UNBOUND_DRIVER,

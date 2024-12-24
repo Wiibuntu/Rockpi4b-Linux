@@ -262,6 +262,14 @@
 	TRACEPOINT_STR()
 
 /*
+ * Allow architectures to handle ro_after_init data on their
+ * own by defining an empty RO_AFTER_INIT_DATA.
+ */
+#ifndef RO_AFTER_INIT_DATA
+#define RO_AFTER_INIT_DATA *(.data..ro_after_init)
+#endif
+
+/*
  * Data section helpers
  */
 #define NOSAVE_DATA							\
@@ -852,7 +860,14 @@
  */
 #define PERCPU_INPUT(cacheline)						\
 	VMLINUX_SYMBOL(__per_cpu_start) = .;				\
+	VMLINUX_SYMBOL(__per_cpu_user_mapped_start) = .;		\
 	*(.data..percpu..first)						\
+	. = ALIGN(cacheline);						\
+	*(.data..percpu..user_mapped)					\
+	*(.data..percpu..user_mapped..shared_aligned)			\
+	. = ALIGN(PAGE_SIZE);						\
+	*(.data..percpu..user_mapped..page_aligned)			\
+	VMLINUX_SYMBOL(__per_cpu_user_mapped_end) = .;			\
 	. = ALIGN(PAGE_SIZE);						\
 	*(.data..percpu..page_aligned)					\
 	. = ALIGN(cacheline);						\

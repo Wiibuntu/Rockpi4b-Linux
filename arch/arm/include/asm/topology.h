@@ -4,6 +4,7 @@
 
 #ifdef CONFIG_ARM_CPU_TOPOLOGY
 
+#include <linux/cpufreq.h>
 #include <linux/cpumask.h>
 
 struct cputopo_arm {
@@ -32,6 +33,12 @@ const struct cpumask *cpu_coregroup_mask(int cpu);
 
 /* Replace task scheduler's default cpu-invariant accounting */
 #define arch_scale_cpu_capacity topology_get_cpu_scale
+
+#ifdef CONFIG_CPU_FREQ
+#define arch_scale_freq_capacity cpufreq_scale_freq_capacity
+#endif
+#define arch_scale_cpu_capacity scale_cpu_capacity
+extern unsigned long scale_cpu_capacity(struct sched_domain *sd, int cpu);
 
 #else
 

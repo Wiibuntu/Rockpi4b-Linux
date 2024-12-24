@@ -1,0 +1,26 @@
+--- include/uapi/linux/inet_diag.h
++++ include/uapi/linux/inet_diag.h
+@@ -72,6 +72,8 @@ enum {
+ 	INET_DIAG_BC_AUTO,
+ 	INET_DIAG_BC_S_COND,
+ 	INET_DIAG_BC_D_COND,
++	INET_DIAG_BC_DEV_COND,   /* u32 ifindex */
++	INET_DIAG_BC_MARK_COND,
+ };
+ 
+ struct inet_diag_hostcond {
+@@ -118,9 +125,13 @@ enum {
+ 	INET_DIAG_DCTCPINFO,
+ 	INET_DIAG_PROTOCOL,  /* response attribute only */
+ 	INET_DIAG_SKV6ONLY,
++	INET_DIAG_LOCALS,
++	INET_DIAG_PEERS,
++	INET_DIAG_PAD,
++	INET_DIAG_MARK,
+ };
+ 
+-#define INET_DIAG_MAX INET_DIAG_SKV6ONLY
++#define INET_DIAG_MAX INET_DIAG_MARK
+ 
+ /* INET_DIAG_MEM */
+ 

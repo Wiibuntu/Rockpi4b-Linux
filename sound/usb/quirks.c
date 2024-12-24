@@ -129,6 +129,12 @@ static int create_standard_audio_quirk(struct snd_usb_audio *chip,
 	/* reset the current interface */
 	usb_set_interface(chip->dev, altsd->bInterfaceNumber, 0);
 	return 0;
+
+ error:
+	list_del(&fp->list); /* unlink for avoiding double-free */
+	kfree(fp);
+	kfree(rate_table);
+	return err;
 }
 
 /*

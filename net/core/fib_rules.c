@@ -41,6 +41,11 @@ bool fib_rule_matchall(const struct fib_rule *rule)
 }
 EXPORT_SYMBOL_GPL(fib_rule_matchall);
 
+static const struct fib_kuid_range fib_kuid_range_unset = {
+	KUIDT_INIT(0),
+	KUIDT_INIT(~0),
+};
+
 int fib_default_rule_add(struct fib_rules_ops *ops,
 			 u32 pref, u32 table, u32 flags)
 {
@@ -245,6 +250,34 @@ static int nla_put_port_range(struct sk_buff *skb, int attrtype,
 	return nla_put(skb, attrtype, sizeof(*range), range);
 }
 
+static int uid_range_set(struct fib_kuid_range *range)
+{
+	return uid_valid(range->start) && uid_valid(range->end);
+}
+
+static struct fib_kuid_range nla_get_kuid_range(struct nlattr **tb)
+{
+	struct fib_rule_uid_range *in;
+	struct fib_kuid_range out;
+
+	in = (struct fib_rule_uid_range *)nla_data(tb[FRA_UID_RANGE]);
+
+	out.start = make_kuid(current_user_ns(), in->start);
+	out.end = make_kuid(current_user_ns(), in->end);
+
+	return out;
+}
+
+static int nla_put_uid_range(struct sk_buff *skb, struct fib_kuid_range *range)
+{
+	struct fib_rule_uid_range out = {
+		from_kuid_munged(current_user_ns(), range->start),
+		from_kuid_munged(current_user_ns(), range->end)
+	};
+
+	return nla_put(skb, FRA_UID_RANGE, sizeof(out), &out);
+}
+
 static int fib_rule_match(struct fib_rule *rule, struct fib_rules_ops *ops,
 			  struct flowi *fl, int flags,
 			  struct fib_lookup_arg *arg)
@@ -264,6 +297,10 @@ static int fib_rule_match(struct fib_rule *rule, struct fib_rules_ops *ops,
 		goto out;
 
 	if (rule->l3mdev && !l3mdev_fib_rule_match(rule->fr_net, fl, arg))
+		goto out;
+
+	if (uid_lt(fl->flowi_uid, rule->uid_range.start) ||
+	    uid_gt(fl->flowi_uid, rule->uid_range.end))
 		goto out;
 
 	if (uid_lt(fl->flowi_uid, rule->uid_range.start) ||
@@ -627,6 +664,21 @@ int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr *nlh,
 		goto errout_free;
 	}
 
+	if (tb[FRA_UID_RANGE]) {
+		if (current_user_ns() != net->user_ns) {
+			err = -EPERM;
+			goto errout_free;
+		}
+
+		rule->uid_range = nla_get_kuid_range(tb);
+
+		if (!uid_range_set(&rule->uid_range) ||
+		    !uid_lte(rule->uid_range.start, rule->uid_range.end))
+			goto errout_free;
+	} else {
+		rule->uid_range = fib_kuid_range_unset;
+	}
+
 	err = ops->configure(rule, skb, frh, tb);
 	if (err < 0)
 		goto errout_free;
@@ -739,6 +791,14 @@ int fib_nl_delrule(struct sk_buff *skb, struct nlmsghdr *nlh,
 			goto errout;
 	}
 
+	if (tb[FRA_UID_RANGE]) {
+		range = nla_get_kuid_range(tb);
+		if (!uid_range_set(&range))
+			goto errout;
+	} else {
+		range = fib_kuid_range_unset;
+	}
+
 	list_for_each_entry(rule, &ops->rules_list, list) {
 		if (tb[FRA_PROTOCOL] &&
 		    (rule->proto != nla_get_u8(tb[FRA_PROTOCOL])))
@@ -794,6 +854,11 @@ int fib_nl_delrule(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 		if (fib_rule_port_range_set(&dprange) &&
 		    !fib_rule_port_range_compare(&rule->dport_range, &dprange))
+			continue;
+
+		if (uid_range_set(&range) &&
+		    (!uid_eq(rule->uid_range.start, range.start) ||
+		     !uid_eq(rule->uid_range.end, range.end)))
 			continue;
 
 		if (!ops->compare(rule, frh, tb))

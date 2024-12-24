@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /**
  * include/linux/f2fs_fs.h
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #ifndef _LINUX_F2FS_FS_H
 #define _LINUX_F2FS_FS_H
@@ -284,7 +281,7 @@ enum {
 
 struct node_footer {
 	__le32 nid;		/* node id */
-	__le32 ino;		/* inode nunmber */
+	__le32 ino;		/* inode number */
 	__le32 flag;		/* include cold/fsync/dentry marks and offset */
 	__le64 cp_ver;		/* checkpoint version */
 	__le32 next_blkaddr;	/* next node page block address */
@@ -511,12 +508,13 @@ typedef __le32	f2fs_hash_t;
 #define SIZE_OF_RESERVED	(PAGE_SIZE - ((SIZE_OF_DIR_ENTRY + \
 				F2FS_SLOT_LEN) * \
 				NR_DENTRY_IN_BLOCK + SIZE_OF_DENTRY_BITMAP))
+#define MIN_INLINE_DENTRY_SIZE		40	/* just include '.' and '..' entries */
 
 /* One directory entry slot representing F2FS_SLOT_LEN-sized file name */
 struct f2fs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
 	__le32 ino;		/* inode number */
-	__le16 name_len;	/* lengh of file name */
+	__le16 name_len;	/* length of file name */
 	__u8 file_type;		/* file type */
 } __packed;
 
@@ -541,6 +539,10 @@ enum {
 	F2FS_FT_SYMLINK,
 	F2FS_FT_MAX
 };
+
+#define S_SHIFT 12
+
+#define	F2FS_DEF_PROJID		0	/* default project ID */
 
 #define S_SHIFT 12
 

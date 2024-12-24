@@ -1,0 +1,10 @@
+--- arch/mips/Kbuild.platforms
++++ arch/mips/Kbuild.platforms
+@@ -11,6 +11,7 @@ platforms += cavium-octeon
+ platforms += cobalt
+ platforms += dec
+ platforms += emma
++platforms += generic
+ platforms += jazz
+ platforms += jz4740
+ platforms += lantiq

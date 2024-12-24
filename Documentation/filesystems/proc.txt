@@ -426,6 +426,7 @@ KernelPageSize:        4 kB
 MMUPageSize:           4 kB
 Locked:                0 kB
 VmFlags: rd ex mr mw me dw
+Name:           name from userspace
 
 the first of these lines shows the same information as is displayed for the
 mapping in /proc/PID/maps.  The remaining lines show the size of the mapping
@@ -496,7 +497,12 @@ manner. The codes are the following:
 
 Note that there is no guarantee that every flag and associated mnemonic will
 be present in all further kernel releases. Things get changed, the flags may
-be vanished or the reverse -- new added.
+be vanished or the reverse -- new added. Interpretation of their meaning
+might change in future as well. So each consumer of these flags has to
+follow each specific kernel version for the exact semantic.
+
+The "Name" field will only be present on a mapping that has been named by
+userspace, and will show the name passed in by userspace.
 
 This file is only present if the CONFIG_MMU kernel configuration option is
 enabled.
@@ -1916,6 +1922,23 @@ A value of '1' indicates that a patch is in transition and the task is
 patched.  If the patch is being enabled, then the task has already been
 patched.  If the patch is being disabled, then the task hasn't been
 unpatched yet.
+
+
+3.10	/proc/<pid>/timerslack_ns - Task timerslack value
+---------------------------------------------------------
+This file provides the value of the task's timerslack value in nanoseconds.
+This value specifies a amount of time that normal timers may be deferred
+in order to coalesce timers and avoid unnecessary wakeups.
+
+This allows a task's interactivity vs power consumption trade off to be
+adjusted.
+
+Writing 0 to the file will set the tasks timerslack to the default value.
+
+Valid values are from 0 - ULLONG_MAX
+
+An application setting the value must have PTRACE_MODE_ATTACH_FSCREDS level
+permissions on the task specified to change its timerslack_ns value.
 
 
 ------------------------------------------------------------------------------

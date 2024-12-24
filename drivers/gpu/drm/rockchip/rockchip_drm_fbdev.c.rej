@@ -1,0 +1,91 @@
+--- drivers/gpu/drm/rockchip/rockchip_drm_fbdev.c
++++ drivers/gpu/drm/rockchip/rockchip_drm_fbdev.c
+@@ -20,20 +20,45 @@
+ #include "rockchip_drm_drv.h"
+ #include "rockchip_drm_gem.h"
+ #include "rockchip_drm_fb.h"
++#include "rockchip_drm_fbdev.h"
+ 
+ #define PREFERRED_BPP		32
+-#define to_drm_private(x) \
+-		container_of(x, struct rockchip_drm_private, fbdev_helper)
+ 
+ static int rockchip_fbdev_mmap(struct fb_info *info,
+ 			       struct vm_area_struct *vma)
+ {
+ 	struct drm_fb_helper *helper = info->par;
+-	struct rockchip_drm_private *private = to_drm_private(helper);
++	struct rockchip_drm_private *private = helper->dev->dev_private;
+ 
+ 	return rockchip_gem_mmap_buf(private->fbdev_bo, vma);
+ }
+ 
++static struct dma_buf *rockchip_fbdev_get_dma_buf(struct fb_info *info)
++{
++	struct dma_buf *buf = NULL;
++	struct drm_fb_helper *helper = info->par;
++	struct rockchip_drm_private *private = helper->dev->dev_private;
++	struct drm_device *dev = helper->dev;
++
++	if (dev->driver->gem_prime_export) {
++		buf = dev->driver->gem_prime_export(dev, private->fbdev_bo,
++						    O_RDWR);
++		if (buf)
++			drm_gem_object_reference(private->fbdev_bo);
++	}
++
++	return buf;
++}
++
++static int rockchip_fbdev_blank(int blank, struct fb_info *info)
++{
++	struct drm_fb_helper *helper = info->par;
++
++	drm_fb_helper_restore_fbdev_mode_unlocked(helper);
++
++	return drm_fb_helper_blank(blank, info);
++}
++
+ static struct fb_ops rockchip_drm_fbdev_ops = {
+ 	.owner		= THIS_MODULE,
+ 	.fb_mmap	= rockchip_fbdev_mmap,
+@@ -42,15 +67,18 @@ static struct fb_ops rockchip_drm_fbdev_ops = {
+ 	.fb_imageblit	= drm_fb_helper_cfb_imageblit,
+ 	.fb_check_var	= drm_fb_helper_check_var,
+ 	.fb_set_par	= drm_fb_helper_set_par,
+-	.fb_blank	= drm_fb_helper_blank,
++	.fb_blank	= rockchip_fbdev_blank,
+ 	.fb_pan_display	= drm_fb_helper_pan_display,
++	.fb_read	= drm_fb_helper_sys_read,
++	.fb_write	= drm_fb_helper_sys_write,
+ 	.fb_setcmap	= drm_fb_helper_setcmap,
++	.fb_dmabuf_export	= rockchip_fbdev_get_dma_buf,
+ };
+ 
+ static int rockchip_drm_fbdev_create(struct drm_fb_helper *helper,
+ 				     struct drm_fb_helper_surface_size *sizes)
+ {
+-	struct rockchip_drm_private *private = to_drm_private(helper);
++	struct rockchip_drm_private *private = helper->dev->dev_private;
+ 	struct drm_mode_fb_cmd2 mode_cmd = { 0 };
+ 	struct drm_device *dev = helper->dev;
+ 	struct rockchip_gem_object *rk_obj;
+@@ -108,7 +136,7 @@ static int rockchip_drm_fbdev_create(struct drm_fb_helper *helper,
+ 	fbi->screen_size = rk_obj->base.size;
+ 	fbi->fix.smem_len = rk_obj->base.size;
+ 
+-	DRM_DEBUG_KMS("FB [%dx%d]-%d kvaddr=%p offset=%ld size=%d\n",
++	DRM_DEBUG_KMS("FB [%dx%d]-%d kvaddr=%p offset=%ld size=%zu\n",
+ 		      fb->width, fb->height, fb->depth, rk_obj->kvaddr,
+ 		      offset, size);
+ 
+@@ -160,9 +192,6 @@ int rockchip_drm_fbdev_init(struct drm_device *dev)
+ 		goto err_drm_fb_helper_fini;
+ 	}
+ 
+-	/* disable all the possible outputs/crtcs before entering KMS mode */
+-	drm_helper_disable_unused_functions(dev);
+-
+ 	ret = drm_fb_helper_initial_config(helper, PREFERRED_BPP);
+ 	if (ret < 0) {
+ 		dev_err(dev->dev, "Failed to set initial hw config - %d.\n",

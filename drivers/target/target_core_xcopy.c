@@ -209,6 +209,8 @@ static int target_xcopy_parse_target_descriptors(struct se_cmd *se_cmd,
 
 	*sense_ret = TCM_INVALID_PARAMETER_LIST;
 
+	*sense_ret = TCM_INVALID_PARAMETER_LIST;
+
 	if (offset != 0) {
 		pr_err("XCOPY target descriptor list length is not"
 			" multiple of %d\n", XCOPY_TARGET_DESC_LEN);

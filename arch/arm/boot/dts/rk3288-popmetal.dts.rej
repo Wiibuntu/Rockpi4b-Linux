@@ -1,0 +1,42 @@
+--- arch/arm/boot/dts/rk3288-popmetal.dts
++++ arch/arm/boot/dts/rk3288-popmetal.dts
+@@ -51,7 +52,7 @@
+ 
+ 	memory{
+ 		device_type = "memory";
+-		reg = <0 0x80000000>;
++		reg = <0x0 0x0 0x0 0x80000000>;
+ 	};
+ 
+ 	ext_gmac: external-gmac-clock {
+@@ -80,22 +81,6 @@
+ 		};
+ 	};
+ 
+-	io_domains: io-domains {
+-		compatible = "rockchip,rk3288-io-voltage-domain";
+-		rockchip,grf = <&grf>;
+-
+-		audio-supply = <&vcca_33>;
+-		bb-supply = <&vcc_io>;
+-		dvp-supply = <&vcc18_dvp>;
+-		flash0-supply = <&vcc_flash>;
+-		flash1-supply = <&vcc_lan>;
+-		gpio30-supply = <&vcc_io>;
+-		gpio1830-supply = <&vcc_io>;
+-		lcdc-supply = <&vcc_io>;
+-		sdcard-supply = <&vccio_sd>;
+-		wifi-supply = <&vccio_wl>;
+-	};
+-
+ 	ir: ir-receiver {
+ 		compatible = "gpio-ir-receiver";
+ 		gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+@@ -211,7 +244,6 @@
+ };
+ 
+ &emmc {
+-	broken-cd;
+ 	bus-width = <8>;
+ 	cap-mmc-highspeed;
+ 	disable-wp;

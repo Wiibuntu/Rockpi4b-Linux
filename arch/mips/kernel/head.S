@@ -129,6 +129,10 @@ dtb_found:
 	LONG_S		t2, fw_passed_dtb
 #endif
 
+#ifdef CONFIG_USE_OF
+	LONG_S		t2, fw_passed_dtb
+#endif
+
 	MTC0		zero, CP0_CONTEXT	# clear context register
 	PTR_LA		$28, init_thread_union
 	/* Set the SP after an empty pt_regs.  */

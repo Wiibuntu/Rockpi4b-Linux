@@ -573,6 +573,7 @@ ENTRY(pgm_check_handler)
 	stpt	__LC_SYNC_ENTER_TIMER
 	BPOFF
 	stmg	%r8,%r15,__LC_SAVE_AREA_SYNC
+	BPOFF
 	lg	%r10,__LC_LAST_BREAK
 	lg	%r12,__LC_CURRENT
 	lghi	%r11,0

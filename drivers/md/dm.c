@@ -1809,6 +1809,8 @@ static void cleanup_mapped_device(struct mapped_device *md)
 
 	cleanup_srcu_struct(&md->io_barrier);
 
+	cleanup_srcu_struct(&md->io_barrier);
+
 	if (md->bdev) {
 		bdput(md->bdev);
 		md->bdev = NULL;
@@ -2278,6 +2280,7 @@ EXPORT_SYMBOL_GPL(dm_device_name);
 
 static void __dm_destroy(struct mapped_device *md, bool wait)
 {
+	struct request_queue *q = dm_get_md_queue(md);
 	struct dm_table *map;
 	int srcu_idx;
 
@@ -2289,6 +2292,10 @@ static void __dm_destroy(struct mapped_device *md, bool wait)
 	spin_unlock(&_minor_lock);
 
 	blk_set_queue_dying(md->queue);
+
+	spin_lock_irq(q->queue_lock);
+	queue_flag_set(QUEUE_FLAG_DYING, q);
+	spin_unlock_irq(q->queue_lock);
 
 	if (dm_request_based(md) && md->kworker_task)
 		kthread_flush_worker(&md->kworker);

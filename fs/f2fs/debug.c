@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * f2fs debugging statistics
  *
@@ -5,10 +6,6 @@
  *             http://www.samsung.com/
  * Copyright (c) 2012 Linux Foundation
  * Copyright (c) 2012 Greg Kroah-Hartman <gregkh@linuxfoundation.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/fs.h>
@@ -342,6 +339,12 @@ static int stat_show(struct seq_file *s, void *v)
 				si->bg_data_blks);
 		seq_printf(s, "  - node blocks : %d (%d)\n", si->node_blks,
 				si->bg_node_blks);
+		seq_printf(s, "Skipped : atomic write %llu (%llu)\n",
+				si->skipped_atomic_files[BG_GC] +
+				si->skipped_atomic_files[FG_GC],
+				si->skipped_atomic_files[BG_GC]);
+		seq_printf(s, "BG skip : IO: %u, Other: %u\n",
+				si->io_skip_bggc, si->other_skip_bggc);
 		seq_puts(s, "\nExtent Cache:\n");
 		seq_printf(s, "  - Hit Count: L1-1:%llu L1-2:%llu L2:%llu\n",
 				si->hit_largest, si->hit_cached,
@@ -463,6 +466,13 @@ int f2fs_build_stats(struct f2fs_sb_info *sbi)
 	atomic_set(&sbi->inline_inode, 0);
 	atomic_set(&sbi->inline_dir, 0);
 	atomic_set(&sbi->inplace_count, 0);
+	for (i = META_CP; i < META_MAX; i++)
+		atomic_set(&sbi->meta_count[i], 0);
+
+	atomic_set(&sbi->aw_cnt, 0);
+	atomic_set(&sbi->vw_cnt, 0);
+	atomic_set(&sbi->max_aw_cnt, 0);
+	atomic_set(&sbi->max_vw_cnt, 0);
 
 	atomic_set(&sbi->aw_cnt, 0);
 	atomic_set(&sbi->vw_cnt, 0);

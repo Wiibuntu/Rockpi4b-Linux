@@ -304,6 +304,28 @@ static void sem_rcu_free(struct rcu_head *head)
 }
 
 /*
+ * Try to leave the mode that disallows simple operations:
+ * Caller must own sem_perm.lock.
+ */
+static void complexmode_tryleave(struct sem_array *sma)
+{
+	if (sma->complex_count)  {
+		/* Complex ops are sleeping.
+		 * We must stay in complex mode
+		 */
+		return;
+	}
+	/*
+	 * Immediately after setting complex_mode to false,
+	 * a simple op can start. Thus: all memory writes
+	 * performed by the current operation must be visible
+	 * before we set complex_mode to false.
+	 */
+	smp_store_release(&sma->complex_mode, false);
+}
+
+#define SEM_GLOBAL_LOCK	(-1)
+/*
  * Enter the mode suitable for non-simple operations:
  * Caller must own sem_perm.lock.
  */
@@ -2230,6 +2252,8 @@ int copy_semundo(unsigned long clone_flags, struct task_struct *tsk)
 		tsk->sysvsem.undo_list = undo_list;
 	} else
 		tsk->sysvsem.undo_list = NULL;
+
+	complexmode_tryleave(sma);
 
 	return 0;
 }

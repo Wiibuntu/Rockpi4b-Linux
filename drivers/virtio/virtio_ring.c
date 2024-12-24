@@ -60,6 +60,11 @@ struct vring_desc_state {
 	struct vring_desc *indir_desc;	/* Indirect descriptor, if any. */
 };
 
+struct vring_desc_state {
+	void *data;			/* Data for callback. */
+	struct vring_desc *indir_desc;	/* Indirect descriptor, if any. */
+};
+
 struct vring_virtqueue {
 	struct virtqueue vq;
 
@@ -1161,6 +1166,8 @@ void vring_transport_features(struct virtio_device *vdev)
 		case VIRTIO_RING_F_EVENT_IDX:
 			break;
 		case VIRTIO_F_VERSION_1:
+			break;
+		case VIRTIO_F_IOMMU_PLATFORM:
 			break;
 		case VIRTIO_F_IOMMU_PLATFORM:
 			break;

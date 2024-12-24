@@ -388,7 +388,7 @@ int opal_put_chars(uint32_t vtermno, const char *data, int total_len)
 		/* Closed or other error drop */
 		if (rc != OPAL_SUCCESS && rc != OPAL_BUSY &&
 		    rc != OPAL_BUSY_EVENT) {
-			written = total_len;
+			written += total_len;
 			break;
 		}
 		if (rc == OPAL_SUCCESS) {
@@ -766,6 +766,9 @@ static int kopald(void *unused)
 		opal_handle_events(be64_to_cpu(events));
 		schedule_timeout_interruptible(timeout);
 	} while (!kthread_should_stop());
+
+	/* Initialise OPAL kmsg dumper for flushing console on panic */
+	opal_kmsg_init();
 
 	return 0;
 }

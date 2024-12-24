@@ -54,7 +54,7 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
-#include <linux/mbcache.h>
+#include <linux/mbcache2.h>
 #include <linux/quotaops.h>
 #include <linux/iversion.h>
 #include "ext4_jbd2.h"
@@ -190,6 +190,8 @@ ext4_xattr_check_entries(struct ext4_xattr_entry *entry, void *end,
 		struct ext4_xattr_entry *next = EXT4_XATTR_NEXT(e);
 		if ((void *)next >= end)
 			return -EFSCORRUPTED;
+		if (strnlen(e->e_name, e->e_name_len) != e->e_name_len)
+			return -EFSCORRUPTED;
 		e = next;
 	}
 
@@ -223,6 +225,27 @@ ext4_xattr_check_entries(struct ext4_xattr_entry *entry, void *end,
 
 	return 0;
 }
+
+static int
+__xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
+			 void *end, const char *function, unsigned int line)
+{
+	struct ext4_xattr_entry *entry = IFIRST(header);
+	int error = -EFSCORRUPTED;
+
+	if (((void *) header >= end) ||
+	    (header->h_magic != le32_to_cpu(EXT4_XATTR_MAGIC)))
+		goto errout;
+	error = ext4_xattr_check_names(entry, end, entry);
+errout:
+	if (error)
+		__ext4_error_inode(inode, function, line, 0,
+				   "corrupted in-inode xattr");
+	return error;
+}
+
+#define xattr_check_inode(inode, header, end) \
+	__xattr_check_inode((inode), (header), (end), __func__, __LINE__)
 
 static inline int
 __ext4_xattr_check_block(struct inode *inode, struct buffer_head *bh,
@@ -2404,6 +2427,8 @@ retry_inode:
 			error = ext4_xattr_block_set(handle, inode, &i, &bs);
 		} else if (error == -ENOSPC) {
 			if (EXT4_I(inode)->i_file_acl && !bs.s.base) {
+				brelse(bs.bh);
+				bs.bh = NULL;
 				error = ext4_xattr_block_find(inode, &i, &bs);
 				if (error)
 					goto cleanup;

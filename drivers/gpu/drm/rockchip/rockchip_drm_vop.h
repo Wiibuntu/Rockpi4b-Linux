@@ -206,11 +206,20 @@ struct vop_data {
 /*
  * display output interface supported by rockchip lcdc
  */
-#define ROCKCHIP_OUT_MODE_P888	0
-#define ROCKCHIP_OUT_MODE_P666	1
-#define ROCKCHIP_OUT_MODE_P565	2
+#define ROCKCHIP_OUT_MODE_P888		0
+#define ROCKCHIP_OUT_MODE_P666		1
+#define ROCKCHIP_OUT_MODE_P565		2
+#define ROCKCHIP_OUT_MODE_S888		8
+#define ROCKCHIP_OUT_MODE_S888_DUMMY	12
+#define ROCKCHIP_OUT_MODE_YUV420	14
 /* for use special outface */
-#define ROCKCHIP_OUT_MODE_AAAA	15
+#define ROCKCHIP_OUT_MODE_AAAA		15
+
+#define ROCKCHIP_OUT_MODE_TYPE(x)	((x) >> 16)
+#define ROCKCHIP_OUT_MODE(x)		((x) & 0xffff)
+#define ROCKCHIP_DSP_MODE(type, mode) \
+		(DRM_MODE_CONNECTOR_##type << 16) | \
+		(ROCKCHIP_OUT_MODE_##mode & 0xffff)
 
 enum alpha_mode {
 	ALPHA_STRAIGHT,
@@ -273,6 +282,40 @@ enum vop_pol {
 	DCLK_INVERT    = 3
 };
 
+enum dither_down_mode {
+	RGB888_TO_RGB565 = 0x0,
+	RGB888_TO_RGB666 = 0x1
+};
+
+enum dither_down_mode_sel {
+	DITHER_DOWN_ALLEGRO = 0x0,
+	DITHER_DOWN_FRC = 0x1
+};
+
+enum vop_pol {
+	HSYNC_POSITIVE = 0,
+	VSYNC_POSITIVE = 1,
+	DEN_NEGATIVE   = 2,
+};
+
+enum vop_pdaf_mode {
+	VOP_HOLD_MODE = 0,
+	VOP_NORMAL_MODE,
+	VOP_PINGPONG_MODE,
+	VOP_BYPASS_MODE,
+	VOP_BACKGROUND_MODE,
+	VOP_ONEFRAME_MODE,
+	VOP_ONEFRAME_NOSEND_MODE
+};
+
+enum vop_pdaf_type {
+	VOP_PDAF_TYPE_DEFAULT = 0,
+	VOP_PDAF_TYPE_HBLANK,
+	VOP_PDAF_TYPE_VBLANK,
+	VOP_PDAF_TYPE_HBLANK_VBLANK,
+	VOP_PDAF_TYPE_INTERWEAVE,
+};
+
 #define FRAC_16_16(mult, div)    (((mult) << 16) / (div))
 #define SCL_FT_DEFAULT_FIXPOINT_SHIFT	12
 #define SCL_MAX_VSKIPLINES		4
@@ -281,6 +324,11 @@ enum vop_pol {
 static inline uint16_t scl_cal_scale(int src, int dst, int shift)
 {
 	return ((src * 2 - 3) << (shift - 1)) / (dst - 1);
+}
+
+static inline uint16_t scl_cal_scale2(int src, int dst)
+{
+	return ((src - 1) << 12) / (dst - 1);
 }
 
 static inline uint16_t scl_cal_scale2(int src, int dst)
@@ -298,6 +346,9 @@ static inline uint16_t scl_get_bili_dn_vskip(int src_h, int dst_h,
 	int act_height;
 
 	act_height = (src_h + vskiplines - 1) / vskiplines;
+
+	if (act_height == dst_h)
+		return GET_SCL_FT_BILI_DN(src_h, dst_h) / vskiplines;
 
 	if (act_height == dst_h)
 		return GET_SCL_FT_BILI_DN(src_h, dst_h) / vskiplines;
@@ -330,9 +381,9 @@ static inline int scl_vop_cal_lb_mode(int width, bool is_yuv)
 {
 	int lb_mode;
 
-	if (width > 2560)
+	if (!is_yuv && (width > 2560))
 		lb_mode = LB_RGB_3840X2;
-	else if (width > 1920)
+	else if (!is_yuv && (width > 1920))
 		lb_mode = LB_RGB_2560X4;
 	else if (!is_yuv)
 		lb_mode = LB_RGB_1920X5;

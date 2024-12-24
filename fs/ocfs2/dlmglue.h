@@ -98,6 +98,11 @@ struct ocfs2_lock_holder {
 	struct pid *oh_owner_pid;
 };
 
+struct ocfs2_lock_holder {
+	struct list_head oh_list;
+	struct pid *oh_owner_pid;
+};
+
 /* ocfs2_inode_lock_full() 'arg_flags' flags */
 /* don't wait on recovery. */
 #define OCFS2_META_LOCK_RECOVERY	(0x01)

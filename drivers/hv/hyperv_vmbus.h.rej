@@ -1,0 +1,24 @@
+--- drivers/hv/hyperv_vmbus.h
++++ drivers/hv/hyperv_vmbus.h
+@@ -586,7 +596,7 @@ struct hv_ring_buffer_debug_info {
+ 
+ extern int hv_init(void);
+ 
+-extern void hv_cleanup(void);
++extern void hv_cleanup(bool crash);
+ 
+ extern int hv_post_message(union hv_connection_id connection_id,
+ 			 enum hv_message_type message_type,
+@@ -769,11 +779,7 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
+ 	if (!channel)
+ 		return;
+ 
+-	if (channel->target_cpu != smp_processor_id())
+-		smp_call_function_single(channel->target_cpu,
+-					 cb, channel, true);
+-	else
+-		cb(channel);
++	smp_call_function_single(channel->target_cpu, cb, channel, true);
+ }
+ 
+ enum hvutil_device_state {

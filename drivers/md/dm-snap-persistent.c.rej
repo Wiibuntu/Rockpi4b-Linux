@@ -1,0 +1,21 @@
+--- drivers/md/dm-snap-persistent.c
++++ drivers/md/dm-snap-persistent.c
+@@ -695,7 +695,7 @@ static int persistent_prepare_exception(struct dm_exception_store *store,
+ }
+ 
+ static void persistent_commit_exception(struct dm_exception_store *store,
+-					struct dm_exception *e,
++					struct dm_exception *e, int valid,
+ 					void (*callback) (void *, int success),
+ 					void *callback_context)
+ {
+@@ -704,6 +704,9 @@ static void persistent_commit_exception(struct dm_exception_store *store,
+ 	struct core_exception ce;
+ 	struct commit_callback *cb;
+ 
++	if (!valid)
++		ps->valid = 0;
++
+ 	ce.old_chunk = e->old_chunk;
+ 	ce.new_chunk = e->new_chunk;
+ 	write_exception(ps, ps->current_committed++, &ce);

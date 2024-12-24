@@ -83,6 +83,16 @@ ifneq ($(findstring s,$(filter-out --%,$(MAKEFLAGS))),)
   silent=1
 endif
 
+ifneq ($(filter 4.%,$(MAKE_VERSION)),)  # make-4
+ifneq ($(filter %s ,$(firstword x$(MAKEFLAGS))),)
+  silent=1
+endif
+else					# make-3.8x
+ifneq ($(filter s% -s%,$(MAKEFLAGS)),)
+  silent=1
+endif
+endif
+
 #
 # Define a callable command for descending to a new directory
 #

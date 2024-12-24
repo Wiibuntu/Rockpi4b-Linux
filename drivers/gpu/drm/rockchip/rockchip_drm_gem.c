@@ -391,13 +391,13 @@ void rockchip_gem_free_object(struct drm_gem_object *obj)
 static struct rockchip_gem_object *
 rockchip_gem_create_with_handle(struct drm_file *file_priv,
 				struct drm_device *drm, unsigned int size,
-				unsigned int *handle)
+				unsigned int *handle, unsigned int flags)
 {
 	struct rockchip_gem_object *rk_obj;
 	struct drm_gem_object *obj;
 	int ret;
 
-	rk_obj = rockchip_gem_create_object(drm, size, false);
+	rk_obj = rockchip_gem_create_object(drm, size, false, flags);
 	if (IS_ERR(rk_obj))
 		return ERR_CAST(rk_obj);
 

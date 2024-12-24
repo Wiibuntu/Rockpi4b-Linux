@@ -408,7 +408,7 @@ struct tty_driver *tty_find_polling_driver(char *name, int *line)
 	mutex_lock(&tty_mutex);
 	/* Search through the tty devices to look for a match */
 	list_for_each_entry(p, &tty_drivers, tty_drivers) {
-		if (strncmp(name, p->name, len) != 0)
+		if (!len || strncmp(name, p->name, len) != 0)
 			continue;
 		stp = str;
 		if (*stp == ',')
@@ -538,6 +538,8 @@ void tty_wakeup(struct tty_struct *tty)
 
 EXPORT_SYMBOL_GPL(tty_wakeup);
 
+extern void tty_sysctl_init(void);
+
 /**
  *	__tty_hangup		-	actual handler for hangup events
  *	@work: tty device
@@ -585,6 +587,14 @@ static void __tty_hangup(struct tty_struct *tty, int exit_session)
 		tty_unlock(tty);
 		return;
 	}
+
+	/*
+	 * Some console devices aren't actually hung up for technical and
+	 * historical reasons, which can lead to indefinite interruptible
+	 * sleep in n_tty_read().  The following explicitly tells
+	 * n_tty_read() to abort readers.
+	 */
+	set_bit(TTY_HUPPING, &tty->flags);
 
 	/*
 	 * Some console devices aren't actually hung up for technical and
@@ -2363,6 +2373,28 @@ static int tiocgetd(struct tty_struct *tty, int __user *p)
 }
 
 /**
+ *	tiocgetd	-	get line discipline
+ *	@tty: tty device
+ *	@p: pointer to user data
+ *
+ *	Retrieves the line discipline id directly from the ldisc.
+ *
+ *	Locking: waits for ldisc reference (in case the line discipline
+ *		is changing or the tty is being hungup)
+ */
+
+static int tiocgetd(struct tty_struct *tty, int __user *p)
+{
+	struct tty_ldisc *ld;
+	int ret;
+
+	ld = tty_ldisc_ref_wait(tty);
+	ret = put_user(ld->ops->num, p);
+	tty_ldisc_deref(ld);
+	return ret;
+}
+
+/**
  *	send_break	-	performed time break
  *	@tty: device to break on
  *	@duration: timeout in mS
@@ -3319,6 +3351,7 @@ void console_sysfs_notify(void)
  */
 int __init tty_init(void)
 {
+	tty_sysctl_init();
 	cdev_init(&tty_cdev, &tty_fops);
 	if (cdev_add(&tty_cdev, MKDEV(TTYAUX_MAJOR, 0), 1) ||
 	    register_chrdev_region(MKDEV(TTYAUX_MAJOR, 0), 1, "/dev/tty") < 0)

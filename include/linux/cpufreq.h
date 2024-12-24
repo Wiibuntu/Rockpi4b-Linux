@@ -140,6 +140,30 @@ struct cpufreq_policy {
 	unsigned int cached_target_freq;
 	int cached_resolved_idx;
 
+
+	/*
+	 * Fast switch flags:
+	 * - fast_switch_possible should be set by the driver if it can
+	 *   guarantee that frequency can be changed on any CPU sharing the
+	 *   policy and that the change will affect all of the policy CPUs then.
+	 * - fast_switch_enabled is to be set by governors that support fast
+	 *   freqnency switching with the help of cpufreq_enable_fast_switch().
+	 */
+	bool                    fast_switch_possible;
+	bool                    fast_switch_enabled;
+
+	/*
+	 * Preferred average time interval between consecutive invocations of
+	 * the driver to set the frequency for this policy.  To be set by the
+	 * scaling driver (0, which is the default, means no preference).
+	 */
+	unsigned int		up_transition_delay_us;
+	unsigned int		down_transition_delay_us;
+
+	 /* Cached frequency lookup from cpufreq_driver_resolve_freq. */
+	unsigned int cached_target_freq;
+	int cached_resolved_idx;
+
 	/* Synchronization for frequency transitions */
 	bool			transition_ongoing; /* Tracks transition status */
 	spinlock_t		transition_lock;
@@ -193,6 +217,7 @@ u64 get_cpu_idle_time(unsigned int cpu, u64 *wall, int io_busy);
 int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu);
 void cpufreq_update_policy(unsigned int cpu);
 bool have_governor_per_policy(void);
+bool cpufreq_driver_is_slow(void);
 struct kobject *get_governor_parent_kobj(struct cpufreq_policy *policy);
 void cpufreq_enable_fast_switch(struct cpufreq_policy *policy);
 void cpufreq_disable_fast_switch(struct cpufreq_policy *policy);
@@ -254,20 +279,12 @@ __ATTR(_name, 0644, show_##_name, store_##_name)
 static struct freq_attr _name =			\
 __ATTR(_name, 0200, NULL, store_##_name)
 
-struct global_attr {
-	struct attribute attr;
-	ssize_t (*show)(struct kobject *kobj,
-			struct attribute *attr, char *buf);
-	ssize_t (*store)(struct kobject *a, struct attribute *b,
-			 const char *c, size_t count);
-};
-
 #define define_one_global_ro(_name)		\
-static struct global_attr _name =		\
+static struct kobj_attribute _name =		\
 __ATTR(_name, 0444, show_##_name, NULL)
 
 #define define_one_global_rw(_name)		\
-static struct global_attr _name =		\
+static struct kobj_attribute _name =		\
 __ATTR(_name, 0644, show_##_name, store_##_name)
 
 
@@ -384,6 +401,14 @@ struct cpufreq_driver {
  * set.
  */
 #define CPUFREQ_NO_AUTO_DYNAMIC_SWITCHING (1 << 6)
+
+/*
+ * Indicates that it is safe to call cpufreq_driver_target from
+ * non-interruptable context in scheduler hot paths.  Drivers must
+ * opt-in to this flag, as the safe default is that they might sleep
+ * or be too slow for hot path use.
+ */
+#define CPUFREQ_DRIVER_FAST		(1 << 6)
 
 int cpufreq_register_driver(struct cpufreq_driver *driver_data);
 int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
@@ -966,4 +991,37 @@ unsigned int cpufreq_generic_get(unsigned int cpu);
 int cpufreq_generic_init(struct cpufreq_policy *policy,
 		struct cpufreq_frequency_table *table,
 		unsigned int transition_latency);
+
+struct sched_domain;
+unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu);
+unsigned long cpufreq_scale_max_freq_capacity(int cpu);
+#ifdef CONFIG_ARM_ROCKCHIP_CPUFREQ
+unsigned int rockchip_cpufreq_adjust_target(int cpu, unsigned int freq);
+int rockchip_cpufreq_get_scale(int cpu);
+int rockchip_cpufreq_set_scale_rate(struct device *dev, unsigned long rate);
+int rockchip_cpufreq_check_rate_volt(struct device *dev);
+#else
+static inline unsigned int rockchip_cpufreq_adjust_target(int cpu,
+							  unsigned int freq)
+{
+	return freq;
+}
+
+static inline int rockchip_cpufreq_get_scale(int cpu)
+{
+	return -EINVAL;
+}
+
+static inline int rockchip_cpufreq_set_scale_rate(struct device *dev,
+						  unsigned long rate)
+{
+	return -EINVAL;
+}
+
+static inline int rockchip_cpufreq_check_rate_volt(struct device *dev)
+{
+	return -EINVAL;
+}
+
+#endif
 #endif /* _LINUX_CPUFREQ_H */

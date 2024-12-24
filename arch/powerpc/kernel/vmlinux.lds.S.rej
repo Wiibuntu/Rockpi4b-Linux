@@ -1,0 +1,10 @@
+--- arch/powerpc/kernel/vmlinux.lds.S
++++ arch/powerpc/kernel/vmlinux.lds.S
+@@ -55,6 +55,7 @@ SECTIONS
+ 		LOCK_TEXT
+ 		KPROBES_TEXT
+ 		IRQENTRY_TEXT
++		SOFTIRQENTRY_TEXT
+ 
+ #ifdef CONFIG_PPC32
+ 		*(.got1)

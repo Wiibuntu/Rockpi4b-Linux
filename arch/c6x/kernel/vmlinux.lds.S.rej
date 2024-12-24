@@ -1,0 +1,10 @@
+--- arch/c6x/kernel/vmlinux.lds.S
++++ arch/c6x/kernel/vmlinux.lds.S
+@@ -72,6 +72,7 @@ SECTIONS
+ 		SCHED_TEXT
+ 		LOCK_TEXT
+ 		IRQENTRY_TEXT
++		SOFTIRQENTRY_TEXT
+ 		KPROBES_TEXT
+ 		*(.fixup)
+ 		*(.gnu.warning)

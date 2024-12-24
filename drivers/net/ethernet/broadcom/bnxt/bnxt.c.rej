@@ -1,0 +1,20 @@
+--- drivers/net/ethernet/broadcom/bnxt/bnxt.c
++++ drivers/net/ethernet/broadcom/bnxt/bnxt.c
+@@ -2498,7 +2523,8 @@ static int bnxt_alloc_ntp_fltrs(struct bnxt *bp)
+ 		INIT_HLIST_HEAD(&bp->ntp_fltr_hash_tbl[i]);
+ 
+ 	bp->ntp_fltr_count = 0;
+-	bp->ntp_fltr_bmap = kzalloc(BITS_TO_LONGS(BNXT_NTP_FLTR_MAX_FLTR),
++	bp->ntp_fltr_bmap = kcalloc(BITS_TO_LONGS(BNXT_NTP_FLTR_MAX_FLTR),
++				    sizeof(long),
+ 				    GFP_KERNEL);
+ 
+ 	if (!bp->ntp_fltr_bmap)
+@@ -4004,6 +4033,7 @@ static int bnxt_shutdown_nic(struct bnxt *bp, bool irq_re_init)
+ 
+ static int bnxt_init_nic(struct bnxt *bp, bool irq_re_init)
+ {
++	bnxt_init_cp_rings(bp);
+ 	bnxt_init_rx_rings(bp);
+ 	bnxt_init_tx_rings(bp);
+ 	bnxt_init_ring_grps(bp, irq_re_init);

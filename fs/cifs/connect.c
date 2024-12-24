@@ -315,6 +315,53 @@ static int cifs_setup_volume_info(struct smb_vol *volume_info, char *mount_data,
 					const char *devname);
 
 /*
+ * Resolve hostname and set ip addr in tcp ses. Useful for hostnames that may
+ * get their ip addresses changed at some point.
+ *
+ * This should be called with server->srv_mutex held.
+ */
+#ifdef CONFIG_CIFS_DFS_UPCALL
+static int reconn_set_ipaddr(struct TCP_Server_Info *server)
+{
+	int rc;
+	int len;
+	char *unc, *ipaddr = NULL;
+
+	if (!server->hostname)
+		return -EINVAL;
+
+	len = strlen(server->hostname) + 3;
+
+	unc = kmalloc(len, GFP_KERNEL);
+	if (!unc) {
+		cifs_dbg(FYI, "%s: failed to create UNC path\n", __func__);
+		return -ENOMEM;
+	}
+	snprintf(unc, len, "\\\\%s", server->hostname);
+
+	rc = dns_resolve_server_name_to_ip(unc, &ipaddr);
+	kfree(unc);
+
+	if (rc < 0) {
+		cifs_dbg(FYI, "%s: failed to resolve server part of %s to IP: %d\n",
+			 __func__, server->hostname, rc);
+		return rc;
+	}
+
+	rc = cifs_convert_address((struct sockaddr *)&server->dstaddr, ipaddr,
+				  strlen(ipaddr));
+	kfree(ipaddr);
+
+	return !rc ? -1 : 0;
+}
+#else
+static inline int reconn_set_ipaddr(struct TCP_Server_Info *server)
+{
+	return 0;
+}
+#endif
+
+/*
  * cifs tcp session reconnection
  *
  * mark tcp session as reconnecting so temporarily locked
@@ -2245,6 +2292,7 @@ cifs_put_tcp_session(struct TCP_Server_Info *server, int from_reconnect)
 	spin_lock(&GlobalMid_Lock);
 	server->tcpStatus = CifsExiting;
 	spin_unlock(&GlobalMid_Lock);
+	mutex_unlock(&server->srv_mutex);
 
 	cifs_crypto_secmech_release(server);
 	cifs_fscache_release_client_cookie(server);
@@ -3318,6 +3366,9 @@ ip_rfc1001_connect(struct TCP_Server_Info *server)
 	 * even though malloc failed
 	 */
 
+	if (server->tcpStatus == CifsNeedNegotiate)
+		mod_delayed_work(cifsiod_wq, &server->echo, 0);
+
 	return rc;
 }
 
@@ -3848,6 +3899,44 @@ cifs_are_all_path_components_accessible(struct TCP_Server_Info *server,
 	return rc;
 }
 
+static int
+cifs_are_all_path_components_accessible(struct TCP_Server_Info *server,
+					unsigned int xid,
+					struct cifs_tcon *tcon,
+					struct cifs_sb_info *cifs_sb,
+					char *full_path)
+{
+	int rc;
+	char *s;
+	char sep, tmp;
+
+	sep = CIFS_DIR_SEP(cifs_sb);
+	s = full_path;
+
+	rc = server->ops->is_path_accessible(xid, tcon, cifs_sb, "");
+	while (rc == 0) {
+		/* skip separators */
+		while (*s == sep)
+			s++;
+		if (!*s)
+			break;
+		/* next separator */
+		while (*s && *s != sep)
+			s++;
+
+		/*
+		 * temporarily null-terminate the path at the end of
+		 * the current component
+		 */
+		tmp = *s;
+		*s = 0;
+		rc = server->ops->is_path_accessible(xid, tcon, cifs_sb,
+						     full_path);
+		*s = tmp;
+	}
+	return rc;
+}
+
 int
 cifs_mount(struct cifs_sb_info *cifs_sb, struct smb_vol *volume_info)
 {
@@ -3982,6 +4071,18 @@ remote_path_check:
 		if (rc != 0 && rc != -EREMOTE) {
 			kfree(full_path);
 			goto mount_fail_check;
+		}
+
+		if (rc != -EREMOTE) {
+			rc = cifs_are_all_path_components_accessible(server,
+							     xid, tcon, cifs_sb,
+							     full_path);
+			if (rc != 0) {
+				cifs_dbg(VFS, "cannot query dirs between root and final path, "
+					 "enabling CIFS_MOUNT_USE_PREFIX_PATH\n");
+				cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_USE_PREFIX_PATH;
+				rc = 0;
+			}
 		}
 
 		if (rc != -EREMOTE) {
@@ -4307,6 +4408,14 @@ cifs_setup_session(const unsigned int xid, struct cifs_ses *ses,
 
 	if (ses->auth_key.response) {
 		cifs_dbg(FYI, "Free previous auth_key.response = %p\n",
+			 ses->auth_key.response);
+		kfree(ses->auth_key.response);
+		ses->auth_key.response = NULL;
+		ses->auth_key.len = 0;
+	}
+
+	if (ses->auth_key.response) {
+		cifs_dbg(VFS, "Free previous auth_key.response = %p\n",
 			 ses->auth_key.response);
 		kfree(ses->auth_key.response);
 		ses->auth_key.response = NULL;

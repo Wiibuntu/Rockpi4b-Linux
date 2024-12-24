@@ -80,6 +80,11 @@ struct ion_buffer {
 
 void ion_buffer_destroy(struct ion_buffer *buffer);
 
+struct device *ion_device_get_platform(struct ion_device *idev);
+
+void ion_device_set_platform(struct ion_device *idev,
+			     struct device *dev);
+
 /**
  * struct ion_device - the metadata of the ion device node
  * @dev:		the actual misc device

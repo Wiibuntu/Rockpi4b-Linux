@@ -1,0 +1,45 @@
+--- Documentation/networking/ip-sysctl.txt
++++ Documentation/networking/ip-sysctl.txt
+@@ -112,14 +112,11 @@ min_adv_mss - INTEGER
+ 
+ IP Fragmentation:
+ 
+-ipfrag_high_thresh - INTEGER
+-	Maximum memory used to reassemble IP fragments. When
+-	ipfrag_high_thresh bytes of memory is allocated for this purpose,
+-	the fragment handler will toss packets until ipfrag_low_thresh
+-	is reached. This also serves as a maximum limit to namespaces
+-	different from the initial one.
+-
+-ipfrag_low_thresh - INTEGER
++ipfrag_high_thresh - LONG INTEGER
++	Maximum memory used to reassemble IP fragments.
++
++ipfrag_low_thresh - LONG INTEGER
++	(Obsolete since linux-4.4.174, backported from linux-4.17)
+ 	Maximum memory used to reassemble IP fragments before the kernel
+ 	begins to remove incomplete fragment queues to free up resources.
+ 	The kernel still accepts new fragments for defragmentation.
+@@ -1413,11 +1420,20 @@ accept_ra_pinfo - BOOLEAN
+ 	Functional default: enabled if accept_ra is enabled.
+ 			    disabled if accept_ra is disabled.
+ 
++accept_ra_rt_info_min_plen - INTEGER
++	Minimum prefix length of Route Information in RA.
++
++	Route Information w/ prefix smaller than this variable shall
++	be ignored.
++
++	Functional default: 0 if accept_ra_rtr_pref is enabled.
++			    -1 if accept_ra_rtr_pref is disabled.
++
+ accept_ra_rt_info_max_plen - INTEGER
+ 	Maximum prefix length of Route Information in RA.
+ 
+-	Route Information w/ prefix larger than or equal to this
+-	variable shall be ignored.
++	Route Information w/ prefix larger than this variable shall
++	be ignored.
+ 
+ 	Functional default: 0 if accept_ra_rtr_pref is enabled.
+ 			    -1 if accept_ra_rtr_pref is disabled.

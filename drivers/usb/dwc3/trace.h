@@ -161,6 +161,9 @@ DECLARE_EVENT_CLASS(dwc3_log_generic_cmd,
 		__field(unsigned int, cmd)
 		__field(u32, param)
 		__field(int, status)
+		__field(int, zero)
+		__field(int, short_not_ok)
+		__field(int, no_interrupt)
 	),
 	TP_fast_assign(
 		__entry->cmd = cmd;

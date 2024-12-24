@@ -507,6 +507,7 @@ again:
 		pages = kcalloc(nr_pages, sizeof(struct page *), GFP_NOFS);
 		if (!pages) {
 			/* just bail out to the uncompressed code */
+			nr_pages = 0;
 			goto cont;
 		}
 
@@ -4562,8 +4563,19 @@ search_again:
 		if (found_type > min_type) {
 			del_item = 1;
 		} else {
-			if (item_end < new_size)
+			if (item_end < new_size) {
+				/*
+				 * With NO_HOLES mode, for the following mapping
+				 *
+				 * [0-4k][hole][8k-12k]
+				 *
+				 * if truncating isize down to 6k, it ends up
+				 * isize being 8k.
+				 */
+				if (btrfs_fs_incompat(root->fs_info, NO_HOLES))
+					last_size = new_size;
 				break;
+			}
 			if (found_key.offset >= new_size)
 				del_item = 1;
 			else
@@ -5970,6 +5982,7 @@ again:
 	if (ret < 0)
 		goto err;
 
+	emitted = false;
 	while (1) {
 		struct dir_entry *entry;
 

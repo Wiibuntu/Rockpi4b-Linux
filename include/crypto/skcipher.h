@@ -267,6 +267,43 @@ static inline unsigned int crypto_skcipher_alg_ivsize(struct skcipher_alg *alg)
 }
 
 /**
+ * crypto_has_skcipher2() - Search for the availability of an skcipher.
+ * @alg_name: is the cra_name / name or cra_driver_name / driver name of the
+ *	      skcipher
+ * @type: specifies the type of the skcipher
+ * @mask: specifies the mask for the skcipher
+ *
+ * Return: true when the skcipher is known to the kernel crypto API; false
+ *	   otherwise
+ */
+int crypto_has_skcipher2(const char *alg_name, u32 type, u32 mask);
+
+static inline const char *crypto_skcipher_driver_name(
+	struct crypto_skcipher *tfm)
+{
+	return crypto_tfm_alg_name(crypto_skcipher_tfm(tfm));
+}
+
+static inline struct skcipher_alg *crypto_skcipher_alg(
+	struct crypto_skcipher *tfm)
+{
+	return container_of(crypto_skcipher_tfm(tfm)->__crt_alg,
+			    struct skcipher_alg, base);
+}
+
+static inline unsigned int crypto_skcipher_alg_ivsize(struct skcipher_alg *alg)
+{
+	if ((alg->base.cra_flags & CRYPTO_ALG_TYPE_MASK) ==
+	    CRYPTO_ALG_TYPE_BLKCIPHER)
+		return alg->base.cra_blkcipher.ivsize;
+
+	if (alg->base.cra_ablkcipher.encrypt)
+		return alg->base.cra_ablkcipher.ivsize;
+
+	return alg->ivsize;
+}
+
+/**
  * crypto_skcipher_ivsize() - obtain IV size
  * @tfm: cipher handle
  *
@@ -340,6 +377,36 @@ static inline unsigned int crypto_skcipher_walksize(
 	return crypto_skcipher_alg_walksize(crypto_skcipher_alg(tfm));
 }
 
+static inline unsigned int crypto_skcipher_alg_chunksize(
+	struct skcipher_alg *alg)
+{
+	if ((alg->base.cra_flags & CRYPTO_ALG_TYPE_MASK) ==
+	    CRYPTO_ALG_TYPE_BLKCIPHER)
+		return alg->base.cra_blocksize;
+
+	if (alg->base.cra_ablkcipher.encrypt)
+		return alg->base.cra_blocksize;
+
+	return alg->chunksize;
+}
+
+/**
+ * crypto_skcipher_chunksize() - obtain chunk size
+ * @tfm: cipher handle
+ *
+ * The block size is set to one for ciphers such as CTR.  However,
+ * you still need to provide incremental updates in multiples of
+ * the underlying block size as the IV does not have sub-block
+ * granularity.  This is known in this API as the chunk size.
+ *
+ * Return: chunk size in bytes
+ */
+static inline unsigned int crypto_skcipher_chunksize(
+	struct crypto_skcipher *tfm)
+{
+	return crypto_skcipher_alg_chunksize(crypto_skcipher_alg(tfm));
+}
+
 /**
  * crypto_skcipher_blocksize() - obtain block size of cipher
  * @tfm: cipher handle
@@ -399,6 +466,17 @@ static inline int crypto_skcipher_setkey(struct crypto_skcipher *tfm,
 					 const u8 *key, unsigned int keylen)
 {
 	return tfm->setkey(tfm, key, keylen);
+}
+
+static inline unsigned int crypto_skcipher_default_keysize(
+	struct crypto_skcipher *tfm)
+{
+	return tfm->keysize;
+}
+
+static inline bool crypto_skcipher_has_setkey(struct crypto_skcipher *tfm)
+{
+	return tfm->keysize;
 }
 
 static inline unsigned int crypto_skcipher_default_keysize(

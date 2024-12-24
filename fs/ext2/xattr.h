@@ -56,6 +56,8 @@ struct ext2_xattr_entry {
 
 struct mb_cache;
 
+struct mb2_cache;
+
 # ifdef CONFIG_EXT2_FS_XATTR
 
 extern const struct xattr_handler ext2_xattr_user_handler;

@@ -1,0 +1,13 @@
+--- net/rds/tcp.c
++++ net/rds/tcp.c
+@@ -433,8 +433,9 @@ static int rds_tcp_init(void)
+ 
+ out_recv:
+ 	rds_tcp_recv_exit();
+-out_slab:
++out_pernet:
+ 	unregister_pernet_subsys(&rds_tcp_net_ops);
++out_slab:
+ 	kmem_cache_destroy(rds_tcp_conn_slab);
+ out:
+ 	return ret;

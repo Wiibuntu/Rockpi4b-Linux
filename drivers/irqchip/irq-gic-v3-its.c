@@ -1263,6 +1263,16 @@ static int its_vlpi_map(struct irq_data *d, struct its_cmd_info *info)
 		/* Ensure all the VPEs are mapped on this ITS */
 		its_map_vm(its_dev->its, info->map->vm);
 
+		/* avoid cross node collections and its mapping */
+		if (its->flags & ITS_FLAGS_WORKAROUND_CAVIUM_23144) {
+			struct device_node *cpu_node;
+
+			cpu_node = of_get_cpu_node(cpu, NULL);
+			if (its->numa_node != NUMA_NO_NODE &&
+				its->numa_node != of_node_to_nid(cpu_node))
+				continue;
+		}
+
 		/*
 		 * Flag the interrupt as forwarded so that we can
 		 * start poking the virtual property table.
@@ -2174,13 +2184,14 @@ static void its_free_device(struct its_device *its_dev)
 	kfree(its_dev);
 }
 
-static int its_alloc_device_irq(struct its_device *dev, irq_hw_number_t *hwirq)
+static int its_alloc_device_irq(struct its_device *dev, int nvecs, irq_hw_number_t *hwirq)
 {
 	int idx;
 
-	idx = find_first_zero_bit(dev->event_map.lpi_map,
-				  dev->event_map.nr_lpis);
-	if (idx == dev->event_map.nr_lpis)
+	idx = bitmap_find_free_region(dev->event_map.lpi_map,
+				      dev->event_map.nr_lpis,
+				      get_count_order(nvecs));
+	if (idx < 0)
 		return -ENOSPC;
 
 	*hwirq = dev->event_map.lpi_base + idx;
@@ -2979,6 +2990,13 @@ static bool __maybe_unused its_enable_quirk_hip07_161600802(void *data)
 	return true;
 }
 
+static void __maybe_unused its_enable_quirk_cavium_23144(void *data)
+{
+	struct its_node *its = data;
+
+	its->flags |= ITS_FLAGS_WORKAROUND_CAVIUM_23144;
+}
+
 static const struct gic_quirk its_quirks[] = {
 #ifdef CONFIG_CAVIUM_ERRATUM_22375
 	{
@@ -2986,6 +3004,14 @@ static const struct gic_quirk its_quirks[] = {
 		.iidr	= 0xa100034c,	/* ThunderX pass 1.x */
 		.mask	= 0xffff0fff,
 		.init	= its_enable_quirk_cavium_22375,
+	},
+#endif
+#ifdef CONFIG_CAVIUM_ERRATUM_23144
+	{
+		.desc	= "ITS: Cavium erratum 23144",
+		.iidr	= 0xa100034c,	/* ThunderX pass 1.x */
+		.mask	= 0xffff0fff,
+		.init	= its_enable_quirk_cavium_23144,
 	},
 #endif
 #ifdef CONFIG_CAVIUM_ERRATUM_23144

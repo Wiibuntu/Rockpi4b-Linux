@@ -254,6 +254,9 @@ bool bio_integrity_prep(struct bio *bio)
 	if (!bio_sectors(bio))
 		return true;
 
+	if (!bio_sectors(bio))
+		return false;
+
 	/* Already protected? */
 	if (bio_integrity(bio))
 		return true;

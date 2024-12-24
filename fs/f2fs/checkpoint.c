@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/checkpoint.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/fs.h>
 #include <linux/bio.h>
@@ -84,9 +81,10 @@ repeat:
 
 	fio.page = page;
 
-	if (f2fs_submit_page_bio(&fio)) {
+	err = f2fs_submit_page_bio(&fio);
+	if (err) {
 		f2fs_put_page(page, 1);
-		goto repeat;
+		return ERR_PTR(err);
 	}
 
 	lock_page(page);
@@ -137,8 +135,20 @@ bool is_valid_blkaddr(struct f2fs_sb_info *sbi, block_t blkaddr, int type)
 			return false;
 		break;
 	case META_POR:
+	case DATA_GENERIC:
 		if (unlikely(blkaddr >= MAX_BLKADDR(sbi) ||
-			blkaddr < MAIN_BLKADDR(sbi)))
+			blkaddr < MAIN_BLKADDR(sbi))) {
+			if (type == DATA_GENERIC) {
+				f2fs_msg(sbi->sb, KERN_WARNING,
+					"access invalid blkaddr:%u", blkaddr);
+				WARN_ON(1);
+			}
+			return false;
+		}
+		break;
+	case META_GENERIC:
+		if (unlikely(blkaddr < SEG0_BLKADDR(sbi) ||
+			blkaddr >= MAIN_BLKADDR(sbi)))
 			return false;
 		break;
 	default:
@@ -452,6 +462,10 @@ static void __remove_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type)
 		kmem_cache_free(ino_entry_slab, e);
 		return;
 	}
+
+	if (type == FLUSH_INO)
+		f2fs_set_bit(devidx, (char *)&e->dirty_device);
+
 	spin_unlock(&im->ino_lock);
 }
 
@@ -542,7 +556,7 @@ int acquire_orphan_inode(struct f2fs_sb_info *sbi)
 	return err;
 }
 
-void release_orphan_inode(struct f2fs_sb_info *sbi)
+void f2fs_release_orphan_inode(struct f2fs_sb_info *sbi)
 {
 	struct inode_management *im = &sbi->im[ORPHAN_INO];
 
@@ -695,7 +709,7 @@ static void write_orphan_inodes(struct f2fs_sb_info *sbi, block_t start_blk)
 	/* loop for each orphan inode entry and write them in Jornal block */
 	list_for_each_entry(orphan, head, list) {
 		if (!page) {
-			page = grab_meta_page(sbi, start_blk++);
+			page = f2fs_grab_meta_page(sbi, start_blk++);
 			orphan_blk =
 				(struct f2fs_orphan_block *)page_address(page);
 			memset(orphan_blk, 0, sizeof(*orphan_blk));
@@ -842,6 +856,15 @@ int get_valid_checkpoint(struct f2fs_sb_info *sbi)
 	else
 		sbi->cur_cp_pack = 2;
 
+	if (cur_page == cp1)
+		sbi->cur_cp_pack = 1;
+	else
+		sbi->cur_cp_pack = 2;
+
+	/* Sanity checking of checkpoint */
+	if (f2fs_sanity_check_ckpt(sbi))
+		goto free_fail_no_cp;
+
 	if (cp_blks <= 1)
 		goto done;
 
@@ -853,7 +876,9 @@ int get_valid_checkpoint(struct f2fs_sb_info *sbi)
 		void *sit_bitmap_ptr;
 		unsigned char *ckpt = (unsigned char *)sbi->ckpt;
 
-		cur_page = get_meta_page(sbi, cp_blk_no + i);
+		cur_page = f2fs_get_meta_page(sbi, cp_blk_no + i);
+		if (IS_ERR(cur_page))
+			goto free_fail_no_cp;
 		sit_bitmap_ptr = page_address(cur_page);
 		memcpy(ckpt + i * blk_size, sit_bitmap_ptr, blk_size);
 		f2fs_put_page(cur_page, 1);
@@ -1479,23 +1504,23 @@ void init_ino_entry_info(struct f2fs_sb_info *sbi)
 				F2FS_ORPHANS_PER_BLOCK;
 }
 
-int __init create_checkpoint_caches(void)
+int __init f2fs_create_checkpoint_caches(void)
 {
 	ino_entry_slab = f2fs_kmem_cache_create("f2fs_ino_entry",
 			sizeof(struct ino_entry));
 	if (!ino_entry_slab)
 		return -ENOMEM;
-	inode_entry_slab = f2fs_kmem_cache_create("f2fs_inode_entry",
+	f2fs_inode_entry_slab = f2fs_kmem_cache_create("f2fs_inode_entry",
 			sizeof(struct inode_entry));
-	if (!inode_entry_slab) {
+	if (!f2fs_inode_entry_slab) {
 		kmem_cache_destroy(ino_entry_slab);
 		return -ENOMEM;
 	}
 	return 0;
 }
 
-void destroy_checkpoint_caches(void)
+void f2fs_destroy_checkpoint_caches(void)
 {
 	kmem_cache_destroy(ino_entry_slab);
-	kmem_cache_destroy(inode_entry_slab);
+	kmem_cache_destroy(f2fs_inode_entry_slab);
 }

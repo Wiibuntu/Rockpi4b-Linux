@@ -1147,6 +1147,25 @@ bool amdgpu_ttm_tt_userptr_needs_pages(struct ttm_tt *ttm)
 	return atomic_read(&gtt->mmu_invalidations) != gtt->last_set_pages;
 }
 
+bool amdgpu_ttm_tt_affect_userptr(struct ttm_tt *ttm, unsigned long start,
+				  unsigned long end)
+{
+	struct amdgpu_ttm_tt *gtt = (void *)ttm;
+	unsigned long size;
+
+	if (gtt == NULL)
+		return false;
+
+	if (gtt->ttm.ttm.state != tt_bound || !gtt->userptr)
+		return false;
+
+	size = (unsigned long)gtt->ttm.ttm.num_pages * PAGE_SIZE;
+	if (gtt->userptr > end || gtt->userptr + size <= start)
+		return false;
+
+	return true;
+}
+
 bool amdgpu_ttm_tt_is_readonly(struct ttm_tt *ttm)
 {
 	struct amdgpu_ttm_tt *gtt = (void *)ttm;
@@ -1867,6 +1886,9 @@ static ssize_t amdgpu_ttm_vram_read(struct file *f, char __user *buf,
 		return -EINVAL;
 
 	if (*pos >= adev->gmc.mc_vram_size)
+		return -ENXIO;
+
+	if (*pos >= adev->mc.mc_vram_size)
 		return -ENXIO;
 
 	while (size) {

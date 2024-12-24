@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/recovery.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
@@ -355,7 +352,9 @@ static int check_index_in_prev_nodes(struct f2fs_sb_info *sbi,
 		}
 	}
 
-	sum_page = get_sum_page(sbi, segno);
+	sum_page = f2fs_get_sum_page(sbi, segno);
+	if (IS_ERR(sum_page))
+		return PTR_ERR(sum_page);
 	sum_node = (struct f2fs_summary_block *)page_address(sum_page);
 	sum = sum_node->entries[blkoff];
 	f2fs_put_page(sum_page, 1);
@@ -375,7 +374,7 @@ got_it:
 	}
 
 	/* Get the node page */
-	node_page = get_node_page(sbi, nid);
+	node_page = f2fs_get_node_page(sbi, nid);
 	if (IS_ERR(node_page))
 		return PTR_ERR(node_page);
 
@@ -410,11 +409,11 @@ got_it:
 		unlock_page(dn->inode_page);
 
 	set_new_dnode(&tdn, inode, NULL, NULL, 0);
-	if (get_dnode_of_data(&tdn, bidx, LOOKUP_NODE))
+	if (f2fs_get_dnode_of_data(&tdn, bidx, LOOKUP_NODE))
 		goto out;
 
 	if (tdn.data_blkaddr == blkaddr)
-		truncate_data_blocks_range(&tdn, 1);
+		f2fs_truncate_data_blocks_range(&tdn, 1);
 
 	f2fs_put_dnode(&tdn);
 out:

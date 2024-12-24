@@ -1,0 +1,66 @@
+--- fs/fuse/dev.c
++++ fs/fuse/dev.c
+@@ -13,12 +13,14 @@
+ #include <linux/poll.h>
+ #include <linux/uio.h>
+ #include <linux/miscdevice.h>
++#include <linux/namei.h>
+ #include <linux/pagemap.h>
+ #include <linux/file.h>
+ #include <linux/slab.h>
+ #include <linux/pipe_fs_i.h>
+ #include <linux/swap.h>
+ #include <linux/splice.h>
++#include <linux/freezer.h>
+ 
+ MODULE_ALIAS_MISCDEV(FUSE_MINOR);
+ MODULE_ALIAS("devname:fuse");
+@@ -429,12 +448,17 @@ static void request_end(struct fuse_conn *fc, struct fuse_req *req)
+ 	wake_up(&req->waitq);
+ 	if (req->end)
+ 		req->end(fc, req);
++put_request:
+ 	fuse_put_request(fc, req);
+ }
+ 
+ static void queue_interrupt(struct fuse_iqueue *fiq, struct fuse_req *req)
+ {
+ 	spin_lock(&fiq->waitq.lock);
++	if (test_bit(FR_FINISHED, &req->flags)) {
++		spin_unlock(&fiq->waitq.lock);
++		return;
++	}
+ 	if (list_empty(&req->intr_entry)) {
+ 		list_add_tail(&req->intr_entry, &fiq->interrupts);
+ 		wake_up_locked(&fiq->waitq);
+@@ -2077,10 +2120,13 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
+ 
+ 	ret = fuse_dev_do_write(fud, &cs, len);
+ 
++	pipe_lock(pipe);
+ 	for (idx = 0; idx < nbuf; idx++) {
+ 		struct pipe_buffer *buf = &bufs[idx];
+ 		buf->ops->release(pipe, buf);
+ 	}
++	pipe_unlock(pipe);
++
+ out:
+ 	kfree(bufs);
+ 	return ret;
+@@ -2119,7 +2165,6 @@ static void end_requests(struct fuse_conn *fc, struct list_head *head)
+ 		struct fuse_req *req;
+ 		req = list_entry(head->next, struct fuse_req, list);
+ 		req->out.h.error = -ECONNABORTED;
+-		clear_bit(FR_PENDING, &req->flags);
+ 		clear_bit(FR_SENT, &req->flags);
+ 		list_del_init(&req->list);
+ 		request_end(fc, req);
+@@ -2198,6 +2244,8 @@ void fuse_abort_conn(struct fuse_conn *fc)
+ 		spin_lock(&fiq->waitq.lock);
+ 		fiq->connected = 0;
+ 		list_splice_init(&fiq->pending, &to_end2);
++		list_for_each_entry(req, &to_end2, list)
++			clear_bit(FR_PENDING, &req->flags);
+ 		while (forget_pending(fiq))
+ 			kfree(dequeue_forget(fiq, 1, NULL));
+ 		wake_up_all_locked(&fiq->waitq);

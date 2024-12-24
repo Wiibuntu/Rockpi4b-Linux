@@ -34,6 +34,30 @@ config ROCKCHIP_CDN_DP
 	  RK3399 based SoC, you should select this
 	  option.
 
+config ROCKCHIP_DRM_DEBUG
+	tristate "Rockchip DRM debug"
+	depends on DRM_ROCKCHIP && DEBUG_FS
+	help
+	  This option add a debug nod to dump buf from application.
+	  dump path: /data/vop_buf
+	  debug nod: d/dri/0/ff900000.vop/vop_dump/dump
+	  echo dump    > dump to dump one frame
+	  echo dumpon  > dump to start vop keep dumping
+	  echo dumpoff > dump to stop keep dumping
+	  echo dumpn   > dump n is the number of dump times
+	  if fd err -3 try rm -r /data/vopbuf echo dump1 > dump can fix it
+	  if fd err -28 save needed data try rm -r /data/vopbuf
+
+config ROCKCHIP_CDN_DP
+	tristate "Rockchip cdn DP"
+	depends on DRM_ROCKCHIP && PHY_ROCKCHIP_TYPEC
+	select SND_SOC_HDMI_CODEC if SND_SOC
+	help
+	  This selects support for Rockchip SoC specific extensions
+	  for the cdn DP driver. If you want to enable Dp on
+	  RK3399 based SoC, you should select this
+	  option.
+
 config ROCKCHIP_DW_HDMI
         bool "Rockchip specific extensions for Synopsys DW HDMI"
         help

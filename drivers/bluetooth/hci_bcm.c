@@ -262,6 +262,9 @@ static int bcm_request_irq(struct bcm_data *bcm)
 	struct bcm_device *bdev = bcm->dev;
 	int err;
 
+	if (!hu->tty->dev)
+		goto out;
+
 	mutex_lock(&bcm_device_lock);
 	if (!bcm_device_exists(bdev)) {
 		err = -ENODEV;
@@ -733,7 +736,7 @@ static int bcm_suspend(struct device *dev)
 
 unlock:
 	mutex_unlock(&bcm_device_lock);
-
+out:
 	return 0;
 }
 

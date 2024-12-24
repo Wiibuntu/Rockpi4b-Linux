@@ -89,6 +89,7 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/netfilter/xt_qtaguid.h>
 
 #include <linux/uaccess.h>
 
@@ -396,6 +397,19 @@ out_rcu_unlock:
 	goto out;
 }
 
+#ifdef CONFIG_ANDROID_PARANOID_NETWORK
+#include <linux/android_aid.h>
+
+static inline int current_has_network(void)
+{
+	return in_egroup_p(AID_INET) || capable(CAP_NET_RAW);
+}
+#else
+static inline int current_has_network(void)
+{
+	return 1;
+}
+#endif
 
 /*
  *	The peer socket should always be NULL (or else). When we call this
@@ -409,6 +423,9 @@ int inet_release(struct socket *sock)
 	if (sk) {
 		long timeout;
 
+#ifdef CONFIG_NETFILTER_XT_MATCH_QTAGUID
+		qtaguid_untag(sock, true);
+#endif
 		/* Applications forget to leave groups before exiting */
 		ip_mc_drop_socket(sk);
 
@@ -1374,6 +1391,7 @@ struct sk_buff *inet_gso_segment(struct sk_buff *skb,
 		if (encap)
 			skb_reset_inner_headers(skb);
 		skb->network_header = (u8 *)iph - skb->head;
+		skb_reset_mac_len(skb);
 	} while ((skb = skb->next));
 
 out:
@@ -1541,6 +1559,19 @@ __be32 inet_current_timestamp(void)
 }
 EXPORT_SYMBOL(inet_current_timestamp);
 
+static struct sk_buff **ipip_gro_receive(struct sk_buff **head,
+					 struct sk_buff *skb)
+{
+	if (NAPI_GRO_CB(skb)->encap_mark) {
+		NAPI_GRO_CB(skb)->flush = 1;
+		return NULL;
+	}
+
+	NAPI_GRO_CB(skb)->encap_mark = 1;
+
+	return inet_gro_receive(head, skb);
+}
+
 int inet_recv_error(struct sock *sk, struct msghdr *msg, int len, int *addr_len)
 {
 	if (sk->sk_family == AF_INET)
@@ -1590,6 +1621,13 @@ static int ipip_gro_complete(struct sk_buff *skb, int nhoff)
 {
 	skb->encapsulation = 1;
 	skb_shinfo(skb)->gso_type |= SKB_GSO_IPXIP4;
+	return inet_gro_complete(skb, nhoff);
+}
+
+static int ipip_gro_complete(struct sk_buff *skb, int nhoff)
+{
+	skb->encapsulation = 1;
+	skb_shinfo(skb)->gso_type |= SKB_GSO_IPIP;
 	return inet_gro_complete(skb, nhoff);
 }
 

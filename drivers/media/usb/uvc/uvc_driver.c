@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/usb.h>
+#include <linux/usb/quirks.h>
 #include <linux/videodev2.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
@@ -92,6 +93,11 @@ static struct uvc_format_desc uvc_fmts[] = {
 	{
 		.name		= "Greyscale 8-bit (Y8  )",
 		.guid		= UVC_GUID_FORMAT_Y8,
+		.fcc		= V4L2_PIX_FMT_GREY,
+	},
+	{
+		.name		= "Greyscale 8-bit (D3DFMT_L8)",
+		.guid		= UVC_GUID_FORMAT_D3DFMT_L8,
 		.fcc		= V4L2_PIX_FMT_GREY,
 	},
 	{
@@ -208,6 +214,26 @@ static struct uvc_format_desc uvc_fmts[] = {
 		.name		= "IR:Depth 26-bit (INZI)",
 		.guid		= UVC_GUID_FORMAT_INZI,
 		.fcc		= V4L2_PIX_FMT_INZI,
+	},
+	{
+		.name		= "Greyscale 8 L/R (Y8I)",
+		.guid		= UVC_GUID_FORMAT_Y8I,
+		.fcc		= V4L2_PIX_FMT_Y8I,
+	},
+	{
+		.name		= "Greyscale 12 L/R (Y12I)",
+		.guid		= UVC_GUID_FORMAT_Y12I,
+		.fcc		= V4L2_PIX_FMT_Y12I,
+	},
+	{
+		.name		= "Depth data 16-bit (Z16)",
+		.guid		= UVC_GUID_FORMAT_Z16,
+		.fcc		= V4L2_PIX_FMT_Z16,
+	},
+	{
+		.name		= "Bayer 10-bit (SRGGB10P)",
+		.guid		= UVC_GUID_FORMAT_RW10,
+		.fcc		= V4L2_PIX_FMT_SRGGB10P,
 	},
 };
 
@@ -1060,11 +1086,19 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
 			return -EINVAL;
 		}
 
-		/* Make sure the terminal type MSB is not null, otherwise it
-		 * could be confused with a unit.
+		/*
+		 * Reject invalid terminal types that would cause issues:
+		 *
+		 * - The high byte must be non-zero, otherwise it would be
+		 *   confused with a unit.
+		 *
+		 * - Bit 15 must be 0, as we use it internally as a terminal
+		 *   direction flag.
+		 *
+		 * Other unknown types are accepted.
 		 */
 		type = get_unaligned_le16(&buffer[4]);
-		if ((type & 0xff00) == 0) {
+		if ((type & 0x7f00) == 0 || (type & 0x8000) != 0) {
 			uvc_trace(UVC_TRACE_DESCR, "device %d videocontrol "
 				"interface %d INPUT_TERMINAL %d has invalid "
 				"type 0x%04x, skipping\n", udev->devnum,
@@ -1744,6 +1778,114 @@ error:
 	return -EINVAL;
 }
 
+static struct uvc_video_chain *uvc_alloc_chain(struct uvc_device *dev)
+{
+	struct uvc_video_chain *chain;
+
+	chain = kzalloc(sizeof(*chain), GFP_KERNEL);
+	if (chain == NULL)
+		return NULL;
+
+	INIT_LIST_HEAD(&chain->entities);
+	mutex_init(&chain->ctrl_mutex);
+	chain->dev = dev;
+	v4l2_prio_init(&chain->prio);
+
+	return chain;
+}
+
+/*
+ * Fallback heuristic for devices that don't connect units and terminals in a
+ * valid chain.
+ *
+ * Some devices have invalid baSourceID references, causing uvc_scan_chain()
+ * to fail, but if we just take the entities we can find and put them together
+ * in the most sensible chain we can think of, turns out they do work anyway.
+ * Note: This heuristic assumes there is a single chain.
+ *
+ * At the time of writing, devices known to have such a broken chain are
+ *  - Acer Integrated Camera (5986:055a)
+ *  - Realtek rtl157a7 (0bda:57a7)
+ */
+static int uvc_scan_fallback(struct uvc_device *dev)
+{
+	struct uvc_video_chain *chain;
+	struct uvc_entity *iterm = NULL;
+	struct uvc_entity *oterm = NULL;
+	struct uvc_entity *entity;
+	struct uvc_entity *prev;
+
+	/*
+	 * Start by locating the input and output terminals. We only support
+	 * devices with exactly one of each for now.
+	 */
+	list_for_each_entry(entity, &dev->entities, list) {
+		if (UVC_ENTITY_IS_ITERM(entity)) {
+			if (iterm)
+				return -EINVAL;
+			iterm = entity;
+		}
+
+		if (UVC_ENTITY_IS_OTERM(entity)) {
+			if (oterm)
+				return -EINVAL;
+			oterm = entity;
+		}
+	}
+
+	if (iterm == NULL || oterm == NULL)
+		return -EINVAL;
+
+	/* Allocate the chain and fill it. */
+	chain = uvc_alloc_chain(dev);
+	if (chain == NULL)
+		return -ENOMEM;
+
+	if (uvc_scan_chain_entity(chain, oterm) < 0)
+		goto error;
+
+	prev = oterm;
+
+	/*
+	 * Add all Processing and Extension Units with two pads. The order
+	 * doesn't matter much, use reverse list traversal to connect units in
+	 * UVC descriptor order as we build the chain from output to input. This
+	 * leads to units appearing in the order meant by the manufacturer for
+	 * the cameras known to require this heuristic.
+	 */
+	list_for_each_entry_reverse(entity, &dev->entities, list) {
+		if (entity->type != UVC_VC_PROCESSING_UNIT &&
+		    entity->type != UVC_VC_EXTENSION_UNIT)
+			continue;
+
+		if (entity->num_pads != 2)
+			continue;
+
+		if (uvc_scan_chain_entity(chain, entity) < 0)
+			goto error;
+
+		prev->baSourceID[0] = entity->id;
+		prev = entity;
+	}
+
+	if (uvc_scan_chain_entity(chain, iterm) < 0)
+		goto error;
+
+	prev->baSourceID[0] = iterm->id;
+
+	list_add_tail(&chain->list, &dev->chains);
+
+	uvc_trace(UVC_TRACE_PROBE,
+		  "Found a video chain by fallback heuristic (%s).\n",
+		  uvc_print_chain(chain));
+
+	return 0;
+
+error:
+	kfree(chain);
+	return -EINVAL;
+}
+
 /*
  * Scan the device for video chains and register video devices.
  *
@@ -1782,6 +1924,9 @@ static int uvc_scan_device(struct uvc_device *dev)
 
 		list_add_tail(&chain->list, &dev->chains);
 	}
+
+	if (list_empty(&dev->chains))
+		uvc_scan_fallback(dev);
 
 	if (list_empty(&dev->chains))
 		uvc_scan_fallback(dev);
@@ -2013,6 +2158,11 @@ static int uvc_register_terms(struct uvc_device *dev,
 		 */
 		uvc_meta_register(stream);
 
+		/* Register a metadata node, but ignore a possible failure,
+		 * complete registration of video nodes anyway.
+		 */
+		uvc_meta_register(stream);
+
 		term->vdev = &stream->vdev;
 	}
 
@@ -2179,7 +2329,11 @@ static int uvc_probe(struct usb_interface *intf,
 	}
 
 	uvc_trace(UVC_TRACE_PROBE, "UVC device initialized.\n");
-	usb_enable_autosuspend(udev);
+	if (udev->quirks & USB_QUIRK_AUTO_SUSPEND ||
+	    udev->parent->quirks & USB_QUIRK_AUTO_SUSPEND)
+		uvc_printk(KERN_INFO, "auto-suspend is blacklisted for this device\n");
+	else
+		usb_enable_autosuspend(udev);
 	return 0;
 
 error:
@@ -2325,6 +2479,28 @@ MODULE_PARM_DESC(timeout, "Streaming control requests timeout");
 /* ------------------------------------------------------------------------
  * Driver initialization and cleanup
  */
+
+static const struct uvc_device_info uvc_quirk_probe_minmax = {
+	.quirks = UVC_QUIRK_PROBE_MINMAX,
+};
+
+static const struct uvc_device_info uvc_quirk_fix_bandwidth = {
+	.quirks = UVC_QUIRK_FIX_BANDWIDTH,
+};
+
+static const struct uvc_device_info uvc_quirk_probe_def = {
+	.quirks = UVC_QUIRK_PROBE_DEF,
+};
+
+static const struct uvc_device_info uvc_quirk_stream_no_fid = {
+	.quirks = UVC_QUIRK_STREAM_NO_FID,
+};
+
+static const struct uvc_device_info uvc_quirk_force_y8 = {
+	.quirks = UVC_QUIRK_FORCE_Y8,
+};
+
+#define UVC_QUIRK_INFO(q) (kernel_ulong_t)&(struct uvc_device_info){.quirks = q}
 
 static const struct uvc_device_info uvc_quirk_probe_minmax = {
 	.quirks = UVC_QUIRK_PROBE_MINMAX,

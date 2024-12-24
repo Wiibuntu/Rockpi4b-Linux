@@ -147,6 +147,8 @@
 
 /* sclk_out: spi master internal logic in rk3x can support 50Mhz */
 #define MAX_SCLK_OUT		50000000
+/* max sclk of driver strength 4mA */
+#define IO_DRIVER_4MA_MAX_SCLK_OUT	24000000
 
 /*
  * SPI_CTRLR1 is 16-bits, so we should support lengths of 0xffff + 1. However,
@@ -375,6 +377,8 @@ static void rockchip_spi_pio_reader(struct rockchip_spi *rs)
 			*(u16 *)(rs->rx) = (u16)rxw;
 		rs->rx += rs->n_bytes;
 	}
+
+	return 1;
 }
 
 static int rockchip_spi_pio_transfer(struct rockchip_spi *rs)
@@ -551,6 +555,19 @@ static void rockchip_spi_config(struct rockchip_spi *rs)
 	/* div doesn't support odd number */
 	div = DIV_ROUND_UP(rs->max_freq, rs->speed);
 	div = (div + 1) & 0xfffe;
+
+	/*
+	 * If speed is larger than IO_DRIVER_4MA_MAX_SCLK_OUT,
+	 * set higher driver strength.
+	 */
+	if (rs->high_speed_state) {
+		if (rs->speed > IO_DRIVER_4MA_MAX_SCLK_OUT)
+			pinctrl_select_state(rs->dev->pins->p,
+					     rs->high_speed_state);
+		else
+			pinctrl_select_state(rs->dev->pins->p,
+					     rs->dev->pins->default_state);
+	}
 
 	/* Rx sample delay is expressed in parent clock cycles (max 3) */
 	rsd = DIV_ROUND_CLOSEST(rs->rsd_nsecs * (rs->max_freq >> 8),
@@ -791,6 +808,13 @@ static int rockchip_spi_probe(struct platform_device *pdev)
 		master->dma_rx = rs->dma_rx.ch;
 	}
 
+	rs->high_speed_state = pinctrl_lookup_state(rs->dev->pins->p,
+						     "high_speed");
+	if (IS_ERR_OR_NULL(rs->high_speed_state)) {
+		dev_warn(&pdev->dev, "no high_speed pinctrl state\n");
+		rs->high_speed_state = NULL;
+	}
+
 	ret = devm_spi_register_master(&pdev->dev, master);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register master\n");
@@ -835,6 +859,8 @@ static int rockchip_spi_remove(struct platform_device *pdev)
 		dma_release_channel(rs->dma_tx.ch);
 	if (rs->dma_rx.ch)
 		dma_release_channel(rs->dma_rx.ch);
+
+	spi_master_put(master);
 
 	spi_master_put(master);
 

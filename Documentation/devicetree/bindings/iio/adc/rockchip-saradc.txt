@@ -23,6 +23,11 @@ Optional properties:
 	  this option. See ../reset/reset.txt for details.
 - reset-names: Must include the name "saradc-apb".
 
+Optional properties:
+- resets: Must contain an entry for each entry in reset-names if need support
+	  this option. See ../reset/reset.txt for details.
+- reset-names: Must include the name "saradc-apb".
+
 Example:
 	saradc: saradc@2006c000 {
 		compatible = "rockchip,saradc";

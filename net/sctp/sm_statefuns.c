@@ -655,6 +655,38 @@ static bool sctp_auth_chunk_verify(struct net *net, struct sctp_chunk *chunk,
 	return sctp_sf_authenticate(asoc, &auth) == SCTP_IERROR_NO_ERROR;
 }
 
+static bool sctp_auth_chunk_verify(struct net *net, struct sctp_chunk *chunk,
+				   const struct sctp_association *asoc)
+{
+	struct sctp_chunk auth;
+
+	if (!chunk->auth_chunk)
+		return true;
+
+	/* SCTP-AUTH:  auth_chunk pointer is only set when the cookie-echo
+	 * is supposed to be authenticated and we have to do delayed
+	 * authentication.  We've just recreated the association using
+	 * the information in the cookie and now it's much easier to
+	 * do the authentication.
+	 */
+
+	/* Make sure that we and the peer are AUTH capable */
+	if (!net->sctp.auth_enable || !asoc->peer.auth_capable)
+		return false;
+
+	/* set-up our fake chunk so that we can process it */
+	auth.skb = chunk->auth_chunk;
+	auth.asoc = chunk->asoc;
+	auth.sctp_hdr = chunk->sctp_hdr;
+	auth.chunk_hdr = (struct sctp_chunkhdr *)
+				skb_push(chunk->auth_chunk,
+					 sizeof(struct sctp_chunkhdr));
+	skb_pull(chunk->auth_chunk, sizeof(struct sctp_chunkhdr));
+	auth.transport = chunk->transport;
+
+	return sctp_sf_authenticate(asoc, &auth) == SCTP_IERROR_NO_ERROR;
+}
+
 /*
  * Respond to a normal COOKIE ECHO chunk.
  * We are the side that is being asked for an association.
@@ -1918,6 +1950,9 @@ static enum sctp_disposition sctp_sf_do_dupcook_b(
 	if (!sctp_auth_chunk_verify(net, chunk, new_asoc))
 		return SCTP_DISPOSITION_DISCARD;
 
+	if (!sctp_auth_chunk_verify(net, chunk, new_asoc))
+		return SCTP_DISPOSITION_DISCARD;
+
 	/* Update the content of current association.  */
 	sctp_add_cmd_sf(commands, SCTP_CMD_UPDATE_ASSOC, SCTP_ASOC(new_asoc));
 	sctp_add_cmd_sf(commands, SCTP_CMD_NEW_STATE,
@@ -2014,6 +2049,9 @@ static enum sctp_disposition sctp_sf_do_dupcook_d(
 	 * It should stop any cookie timer that may be running and send
 	 * a COOKIE ACK.
 	 */
+
+	if (!sctp_auth_chunk_verify(net, chunk, asoc))
+		return SCTP_DISPOSITION_DISCARD;
 
 	if (!sctp_auth_chunk_verify(net, chunk, asoc))
 		return SCTP_DISPOSITION_DISCARD;
@@ -3556,6 +3594,12 @@ enum sctp_disposition sctp_sf_ootb(struct net *net,
 
 		/* Report violation if chunk len overflows */
 		ch_end = ((__u8 *)ch) + SCTP_PAD4(ntohs(ch->length));
+		if (ch_end > skb_tail_pointer(skb))
+			return sctp_sf_violation_chunklen(net, ep, asoc, type, arg,
+						  commands);
+
+		/* Report violation if chunk len overflows */
+		ch_end = ((__u8 *)ch) + WORD_ROUND(ntohs(ch->length));
 		if (ch_end > skb_tail_pointer(skb))
 			return sctp_sf_violation_chunklen(net, ep, asoc, type, arg,
 						  commands);

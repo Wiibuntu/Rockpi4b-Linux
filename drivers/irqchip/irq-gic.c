@@ -227,6 +227,15 @@ static void gic_unmask_irq(struct irq_data *d)
 	gic_poke_irq(d, GIC_DIST_ENABLE_SET);
 }
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+static int gic_retrigger(struct irq_data *d)
+{
+	gic_poke_irq(d, GIC_DIST_PENDING_SET);
+	/* the genirq layer expects 0 if we can't retrigger in hardware */
+	return 0;
+}
+#endif
+
 static void gic_eoi_irq(struct irq_data *d)
 {
 	writel_relaxed(gic_irq(d), gic_cpu_base(d) + GIC_CPU_EOI);

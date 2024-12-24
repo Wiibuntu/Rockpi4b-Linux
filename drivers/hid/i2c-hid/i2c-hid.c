@@ -445,6 +445,15 @@ static int i2c_hid_hwreset(struct i2c_client *client)
 	 */
 	usleep_range(1000, 5000);
 
+	/*
+	 * The HID over I2C specification states that if a DEVICE needs time
+	 * after the PWR_ON request, it should utilise CLOCK stretching.
+	 * However, it has been observered that the Windows driver provides a
+	 * 1ms sleep between the PWR_ON and RESET requests and that some devices
+	 * rely on this.
+	 */
+	usleep_range(1000, 5000);
+
 	i2c_hid_dbg(ihid, "resetting...\n");
 
 	ret = i2c_hid_command(client, &hid_reset_cmd, NULL, 0);
@@ -509,6 +518,9 @@ static irqreturn_t i2c_hid_irq(int irq, void *dev_id)
 		return IRQ_HANDLED;
 
 	i2c_hid_get_input(ihid);
+
+	if (device_may_wakeup(&ihid->client->dev) && ihid->is_suspend == 1)
+		rk_send_wakeup_key();
 
 	return IRQ_HANDLED;
 }
@@ -1054,6 +1066,14 @@ static int i2c_hid_probe(struct i2c_client *client,
 	pm_runtime_enable(&client->dev);
 	device_enable_async_suspend(&client->dev);
 
+	/* Make sure there is something at this address */
+	ret = i2c_smbus_read_byte(client);
+	if (ret < 0) {
+		dev_dbg(&client->dev, "nothing at this address: %d\n", ret);
+		ret = -ENXIO;
+		goto err_pm;
+	}
+
 	ret = i2c_hid_fetch_hid_descriptor(ihid);
 	if (ret < 0)
 		goto err_pm;
@@ -1061,6 +1081,16 @@ static int i2c_hid_probe(struct i2c_client *client,
 	ret = i2c_hid_init_irq(client);
 	if (ret < 0)
 		goto err_pm;
+
+	if (client->dev.of_node) {
+		ret = of_property_read_bool(client->dev.of_node, "hid-support-wakeup");
+		if (ret) {
+			device_init_wakeup(&client->dev, true);
+			ihid->is_suspend = 0;
+			ihid->fb_notif.notifier_call = ihid_fb_notifier_callback;
+			fb_register_client(&ihid->fb_notif);
+		}
+	}
 
 	hid = hid_allocate_device();
 	if (IS_ERR(hid)) {

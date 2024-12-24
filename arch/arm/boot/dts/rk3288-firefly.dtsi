@@ -116,6 +116,36 @@
 		};
 	};
 
+	sdio_pwrseq: sdio-pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		clocks = <&hym8563>;
+		clock-names = "ext_clock";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_enable_h>;
+
+		/*
+		 * On the module itself this is one of these (depending
+		 * on the actual card populated):
+		 * - SDIO_RESET_L_WL_REG_ON
+		 * - PDN (power down when low)
+		 */
+		reset-gpios = <&gpio4 28 GPIO_ACTIVE_LOW>;
+	};
+
+	sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "SPDIF";
+		simple-audio-card,dai-link@1 {
+			cpu { sound-dai = <&spdif>; };
+			codec { sound-dai = <&spdif_out>; };
+		};
+	};
+
+	spdif_out: spdif-out {
+		compatible = "linux,spdif-dit";
+		#sound-dai-cells = <0>;
+	};
+
 	vbat_wl: vcc_sys: vsys-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_sys";
@@ -236,9 +266,18 @@
 	status = "okay";
 };
 
-&hdmi {
-	ddc-i2c-bus = <&i2c5>;
+&gpu {
+	mali-supply = <&vdd_gpu>;
 	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&hevc_service {
+	status = "okay";
+
 };
 
 &i2c0 {
@@ -267,6 +306,7 @@
 		regulator-min-microvolt = <850000>;
 		regulator-max-microvolt = <1350000>;
 		regulator-always-on;
+		regulator-ramp-delay = <6000>;
 		vin-supply = <&vcc_sys>;
 	};
 
@@ -350,6 +390,7 @@
 				regulator-name = "vcca_33";
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
+				regulator-always-on;
 			};
 
 			vcc_lan: REG9 {
@@ -384,6 +425,22 @@
 
 &i2c1 {
 	status = "okay";
+
+	mpu6050@68 {
+		compatible = "invensense,mpu6050";
+		reg = <0x68>;
+		interrupt-parent = <&gpio5>;
+		interrupts = <RK_PB4 IRQ_TYPE_LEVEL_LOW>;
+		mount-matrix = "0",
+			       "1",
+			       "0",
+			       "-1",
+			       "0",
+			       "0",
+			       "0",
+			       "0",
+			       "-1";
+	};
 };
 
 &i2c2 {
@@ -394,7 +451,22 @@
 	status = "okay";
 };
 
-&i2c5 {
+&io_domains {
+	status = "okay";
+
+	audio-supply = <&vcca_33>;
+	bb-supply = <&vcc_io>;
+	dvp-supply = <&dovdd_1v8>;
+	flash0-supply = <&vcc_flash>;
+	flash1-supply = <&vcc_lan>;
+	gpio30-supply = <&vcc_io>;
+	gpio1830-supply = <&vcc_io>;
+	lcdc-supply = <&vcc_io>;
+	sdcard-supply = <&vccio_sd>;
+	wifi-supply = <&vccio_wl>;
+};
+
+&rga {
 	status = "okay";
 };
 
@@ -425,6 +497,15 @@
 	pcfg_pull_up_drv_12ma: pcfg-pull-up-drv-12ma {
 		bias-pull-up;
 		drive-strength = <12>;
+	};
+
+	pcfg_pull_none_drv_8ma: pcfg-pull-none-drv-8ma {
+		drive-strength = <8>;
+	};
+
+	pcfg_pull_up_drv_8ma: pcfg-pull-up-drv-8ma {
+		bias-pull-up;
+		drive-strength = <8>;
 	};
 
 	act8846 {
@@ -515,6 +596,12 @@
 			rockchip,pins = <0 12 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+
+	wireless-bluetooth {
+		uart0_gpios: uart0-gpios {
+			rockchip,pins = <4 19 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
 };
 
 &saradc {
@@ -541,8 +628,13 @@
 	disable-wp;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdmmc_clk>, <&sdmmc_cmd>, <&sdmmc_cd>, <&sdmmc_bus4>;
+	supports-sd;
 	vmmc-supply = <&vcc_sd>;
 	vqmmc-supply = <&vccio_sd>;
+	status = "okay";
+};
+
+&spdif {
 	status = "okay";
 };
 
@@ -553,14 +645,13 @@
 };
 
 &tsadc {
-	rockchip,hw-tshut-mode = <0>;
 	rockchip,hw-tshut-polarity = <0>;
 	status = "okay";
 };
 
 &uart0 {
 	pinctrl-names = "default";
-	pinctrl-0 = <&uart0_xfer>, <&uart0_cts>, <&uart0_rts>;
+	pinctrl-0 = <&uart0_xfer>, <&uart0_cts>;
 	status = "okay";
 };
 
@@ -603,6 +694,10 @@
 };
 
 &vopl_mmu {
+	status = "okay";
+};
+
+&vpu_service {
 	status = "okay";
 };
 

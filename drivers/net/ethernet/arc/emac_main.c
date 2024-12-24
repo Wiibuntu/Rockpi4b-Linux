@@ -794,7 +794,6 @@ static int arc_emac_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	return phy_mii_ioctl(dev->phydev, rq, cmd);
 }
 
-
 /**
  * arc_emac_restart - Restart EMAC
  * @ndev:	Pointer to net_device structure.
@@ -821,6 +820,9 @@ static void arc_emac_restart(struct net_device *ndev)
 
 	/* Return the sk_buff to system */
 	arc_free_tx_queue(ndev);
+
+	priv->txbd_curr = 0;
+	priv->txbd_dirty = 0;
 
 	/* Clean Tx BD's */
 	priv->txbd_curr = 0;

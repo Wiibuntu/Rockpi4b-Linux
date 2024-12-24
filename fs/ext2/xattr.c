@@ -57,7 +57,7 @@
 #include <linux/buffer_head.h>
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/mbcache.h>
+#include <linux/mbcache2.h>
 #include <linux/quotaops.h>
 #include <linux/rwsem.h>
 #include <linux/security.h>
@@ -834,6 +834,7 @@ ext2_xattr_cache_insert(struct mb_cache *cache, struct buffer_head *bh)
 {
 	__u32 hash = le32_to_cpu(HDR(bh)->h_hash);
 	int error;
+	struct mb2_cache *ext2_mb_cache = EXT2_SB(inode->i_sb)->s_mb_cache;
 
 	error = mb_cache_entry_create(cache, GFP_NOFS, hash, bh->b_blocknr, 1);
 	if (error) {

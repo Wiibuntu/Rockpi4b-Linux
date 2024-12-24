@@ -66,6 +66,7 @@ static int zlib_uncompress(struct squashfs_sb_info *msblk, void *strm,
 	struct buffer_head **bh, int b, int offset, int length,
 	struct squashfs_page_actor *output)
 {
+	void *buf = NULL;
 	int zlib_err, zlib_init = 0, k = 0;
 	z_stream *stream = strm;
 
@@ -115,11 +116,13 @@ static int zlib_uncompress(struct squashfs_sb_info *msblk, void *strm,
 	if (k < b)
 		goto out;
 
+	kfree(buf);
 	return stream->total_out;
 
 out:
 	for (; k < b; k++)
 		put_bh(bh[k]);
+	kfree(buf);
 
 	return -EIO;
 }

@@ -2052,6 +2052,9 @@ static int r8152_poll(struct napi_struct *napi, int budget)
 		else if (!skb_queue_empty(&tp->tx_queue) &&
 			 !list_empty(&tp->tx_free))
 			napi_schedule(napi);
+		else if (!skb_queue_empty(&tp->tx_queue) &&
+			 !list_empty(&tp->tx_free))
+			napi_schedule(napi);
 	}
 
 out:
@@ -3905,6 +3908,33 @@ static int rtl_notifier(struct notifier_block *nb, unsigned long action,
 }
 #endif
 
+#ifdef CONFIG_PM_SLEEP
+static int rtl_notifier(struct notifier_block *nb, unsigned long action,
+			void *data)
+{
+	struct r8152 *tp = container_of(nb, struct r8152, pm_notifier);
+
+	switch (action) {
+	case PM_HIBERNATION_PREPARE:
+	case PM_SUSPEND_PREPARE:
+		usb_autopm_get_interface(tp->intf);
+		break;
+
+	case PM_POST_HIBERNATION:
+	case PM_POST_SUSPEND:
+		usb_autopm_put_interface(tp->intf);
+		break;
+
+	case PM_POST_RESTORE:
+	case PM_RESTORE_PREPARE:
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+#endif
+
 static int rtl8152_open(struct net_device *netdev)
 {
 	struct r8152 *tp = netdev_priv(netdev);
@@ -4564,6 +4594,10 @@ int rtl8152_get_link_ksettings(struct net_device *netdev,
 	mutex_unlock(&tp->control);
 
 	usb_autopm_put_interface(tp->intf);
+#ifdef CONFIG_PM_SLEEP
+	tp->pm_notifier.notifier_call = rtl_notifier;
+	register_pm_notifier(&tp->pm_notifier);
+#endif
 
 out:
 	return ret;
@@ -4956,6 +4990,9 @@ static int rtl8152_change_mtu(struct net_device *dev, int new_mtu)
 		break;
 	}
 
+	if (wol->wolopts & ~WAKE_ANY)
+		return -EINVAL;
+
 	ret = usb_autopm_get_interface(tp->intf);
 	if (ret < 0)
 		return ret;
@@ -5217,6 +5254,11 @@ static int rtl8152_probe(struct usb_interface *intf,
 	    udev->serial && !strcmp(udev->serial, "000001000000")) {
 		dev_info(&udev->dev, "Dell TB16 Dock, disable RX aggregation");
 		set_bit(DELL_TB_RX_AGG_BUG, &tp->flags);
+	}
+
+	if (tp->version == RTL_VER_01) {
+		netdev->features &= ~NETIF_F_RXCSUM;
+		netdev->hw_features &= ~NETIF_F_RXCSUM;
 	}
 
 	netdev->ethtool_ops = &ops;

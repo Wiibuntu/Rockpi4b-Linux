@@ -46,6 +46,13 @@ int __pure is_quiet(void)
 
 #define EFI_MMAP_NR_SLACK_SLOTS	8
 
+static int __section(.data) __nokaslr;
+
+int __pure nokaslr(void)
+{
+	return __nokaslr;
+}
+
 struct file_info {
 	efi_file_handle_t *handle;
 	u64 size;
@@ -716,6 +723,10 @@ efi_status_t efi_relocate_kernel(efi_system_table_t *sys_table_arg,
 
 	return status;
 }
+
+#ifndef MAX_CMDLINE_ADDRESS
+#define MAX_CMDLINE_ADDRESS	ULONG_MAX
+#endif
 
 /*
  * Get the number of UTF-8 bytes corresponding to an UTF-16 character.

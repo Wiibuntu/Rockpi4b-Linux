@@ -2158,7 +2158,15 @@ static int ni_ai_inttrig(struct comedi_device *dev,
 	struct ni_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 
-	if (trig_num != cmd->start_arg)
+	/*
+	 * Require trig_num == cmd->start_arg when cmd->start_src == TRIG_INT.
+	 * For backwards compatibility, also allow trig_num == 0 when
+	 * cmd->start_src != TRIG_INT (i.e. when cmd->start_src == TRIG_EXT);
+	 * in that case, the internal trigger is being used as a pre-trigger
+	 * before the external trigger.
+	 */
+	if (!(trig_num == cmd->start_arg ||
+	      (trig_num == 0 && cmd->start_src != TRIG_INT)))
 		return -EINVAL;
 
 	ni_stc_writew(dev, NISTC_AI_CMD2_START1_PULSE | devpriv->ai_cmd2,
@@ -5446,11 +5454,11 @@ static int ni_E_init(struct comedi_device *dev,
 	/* Digital I/O (PFI) subdevice */
 	s = &dev->subdevices[NI_PFI_DIO_SUBDEV];
 	s->type		= COMEDI_SUBD_DIO;
-	s->subdev_flags	= SDF_READABLE | SDF_WRITABLE | SDF_INTERNAL;
 	s->maxdata	= 1;
 	if (devpriv->is_m_series) {
 		s->n_chan	= 16;
 		s->insn_bits	= ni_pfi_insn_bits;
+		s->subdev_flags	= SDF_READABLE | SDF_WRITABLE | SDF_INTERNAL;
 
 		ni_writew(dev, s->state, NI_M_PFI_DO_REG);
 		for (i = 0; i < NUM_PFI_OUTPUT_SELECT_REGS; ++i) {
@@ -5459,6 +5467,7 @@ static int ni_E_init(struct comedi_device *dev,
 		}
 	} else {
 		s->n_chan	= 10;
+		s->subdev_flags	= SDF_INTERNAL;
 	}
 	s->insn_config	= ni_pfi_insn_config;
 

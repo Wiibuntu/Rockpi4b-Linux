@@ -2829,6 +2829,29 @@ void perf_event_addr_filters_sync(struct perf_event *event)
 }
 EXPORT_SYMBOL_GPL(perf_event_addr_filters_sync);
 
+static int __perf_event_stop(void *info)
+{
+	struct perf_event *event = info;
+
+	/* for AUX events, our job is done if the event is already inactive */
+	if (READ_ONCE(event->state) != PERF_EVENT_STATE_ACTIVE)
+		return 0;
+
+	/* matches smp_wmb() in event_sched_in() */
+	smp_rmb();
+
+	/*
+	 * There is a window with interrupts enabled before we get here,
+	 * so we need to check again lest we try to stop another CPU's event.
+	 */
+	if (READ_ONCE(event->oncpu) != smp_processor_id())
+		return -EAGAIN;
+
+	event->pmu->stop(event, PERF_EF_UPDATE);
+
+	return 0;
+}
+
 static int _perf_event_refresh(struct perf_event *event, int refresh)
 {
 	/*
@@ -4443,6 +4466,9 @@ static void _free_event(struct perf_event *event)
 
 	if (event->destroy)
 		event->destroy(event);
+
+	if (event->pmu->free_drv_configs)
+		event->pmu->free_drv_configs(event);
 
 	if (event->ctx)
 		put_ctx(event->ctx);
@@ -8178,6 +8204,9 @@ static int perf_swevent_init(struct perf_event *event)
 	case PERF_COUNT_SW_TASK_CLOCK:
 		return -ENOENT;
 
+	case PERF_EVENT_IOC_SET_DRV_CONFIGS:
+		return perf_event_drv_configs(event, (void __user *)arg);
+
 	default:
 		break;
 	}
@@ -8550,6 +8579,8 @@ static void perf_event_free_bpf_handler(struct perf_event *event)
 {
 }
 #endif
+
+static void perf_pmu_output_stop(struct perf_event *event);
 
 /*
  * returns true if the event is a tracepoint, or a kprobe/upprobe created
@@ -9792,6 +9823,80 @@ static void attach_sb_event(struct perf_event *event)
 	raw_spin_lock(&pel->lock);
 	list_add_rcu(&event->sb_list, &pel->list);
 	raw_spin_unlock(&pel->lock);
+}
+
+struct remote_output {
+	struct ring_buffer	*rb;
+	int			err;
+};
+
+static void __perf_event_output_stop(struct perf_event *event, void *data)
+{
+	struct perf_event *parent = event->parent;
+	struct remote_output *ro = data;
+	struct ring_buffer *rb = ro->rb;
+
+	if (!has_aux(event))
+		return;
+
+	if (!parent)
+		parent = event;
+
+	/*
+	 * In case of inheritance, it will be the parent that links to the
+	 * ring-buffer, but it will be the child that's actually using it:
+	 */
+	if (rcu_dereference(parent->rb) == rb)
+		ro->err = __perf_event_stop(event);
+}
+
+static int __perf_pmu_output_stop(void *info)
+{
+	struct perf_event *event = info;
+	struct pmu *pmu = event->pmu;
+	struct perf_cpu_context *cpuctx = this_cpu_ptr(pmu->pmu_cpu_context);
+	struct remote_output ro = {
+		.rb	= event->rb,
+	};
+
+	rcu_read_lock();
+	perf_event_aux_ctx(&cpuctx->ctx, __perf_event_output_stop, &ro);
+	if (cpuctx->task_ctx)
+		perf_event_aux_ctx(cpuctx->task_ctx, __perf_event_output_stop,
+				   &ro);
+	rcu_read_unlock();
+
+	return ro.err;
+}
+
+static void perf_pmu_output_stop(struct perf_event *event)
+{
+	struct perf_event *iter;
+	int err, cpu;
+
+restart:
+	rcu_read_lock();
+	list_for_each_entry_rcu(iter, &event->rb->event_list, rb_entry) {
+		/*
+		 * For per-CPU events, we need to make sure that neither they
+		 * nor their children are running; for cpu==-1 events it's
+		 * sufficient to stop the event itself if it's active, since
+		 * it can't have children.
+		 */
+		cpu = iter->cpu;
+		if (cpu == -1)
+			cpu = READ_ONCE(iter->oncpu);
+
+		if (cpu == -1)
+			continue;
+
+		err = cpu_function_call(cpu, __perf_pmu_output_stop, event);
+		if (err == -EAGAIN) {
+			rcu_read_unlock();
+			goto restart;
+		}
+	}
+	rcu_read_unlock();
 }
 
 /*
@@ -11218,6 +11323,15 @@ const struct perf_event_attr *perf_event_attrs(struct perf_event *event)
 		return ERR_PTR(-EINVAL);
 
 	return &event->attr;
+}
+
+static int perf_event_drv_configs(struct perf_event *event,
+				  void __user *arg)
+{
+	if (!event->pmu->get_drv_configs)
+		return -EINVAL;
+
+	return event->pmu->get_drv_configs(event, arg);
 }
 
 /*

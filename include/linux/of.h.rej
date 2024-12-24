@@ -1,0 +1,75 @@
+--- include/linux/of.h
++++ include/linux/of.h
+@@ -83,10 +83,12 @@ struct of_reconfig_data {
+ 
+ /* initialize a node */
+ extern struct kobj_type of_node_ktype;
++extern const struct fwnode_operations of_fwnode_ops;
+ static inline void of_node_init(struct device_node *node)
+ {
+ 	kobject_init(&node->kobj, &of_node_ktype);
+ 	node->fwnode.type = FWNODE_OF;
++	node->fwnode.ops = &of_fwnode_ops;
+ }
+ 
+ /* true when node is initialized */
+@@ -133,7 +135,7 @@ void of_core_init(void);
+ 
+ static inline bool is_of_node(struct fwnode_handle *fwnode)
+ {
+-	return fwnode && fwnode->type == FWNODE_OF;
++	return !IS_ERR_OR_NULL(fwnode) && fwnode->type == FWNODE_OF;
+ }
+ 
+ static inline struct device_node *to_of_node(struct fwnode_handle *fwnode)
+@@ -229,13 +239,6 @@ static inline unsigned long of_read_ulong(const __be32 *cell, int size)
+ #define OF_ROOT_NODE_SIZE_CELLS_DEFAULT 1
+ #endif
+ 
+-/* Default string compare functions, Allow arch asm/prom.h to override */
+-#if !defined(of_compat_cmp)
+-#define of_compat_cmp(s1, s2, l)	strcasecmp((s1), (s2))
+-#define of_prop_cmp(s1, s2)		strcmp((s1), (s2))
+-#define of_node_cmp(s1, s2)		strcasecmp((s1), (s2))
+-#endif
+-
+ #define OF_IS_DYNAMIC(x) test_bit(OF_DYNAMIC, &x->_flags)
+ #define OF_MARK_DYNAMIC(x) set_bit(OF_DYNAMIC, &x->_flags)
+ 
+@@ -291,20 +296,24 @@ extern int of_property_count_elems_of_size(const struct device_node *np,
+ extern int of_property_read_u32_index(const struct device_node *np,
+ 				       const char *propname,
+ 				       u32 index, u32 *out_value);
+-extern int of_property_read_u8_array(const struct device_node *np,
+-			const char *propname, u8 *out_values, size_t sz);
+-extern int of_property_read_u16_array(const struct device_node *np,
+-			const char *propname, u16 *out_values, size_t sz);
+-extern int of_property_read_u32_array(const struct device_node *np,
+-				      const char *propname,
+-				      u32 *out_values,
+-				      size_t sz);
++extern int of_property_read_variable_u8_array(const struct device_node *np,
++					const char *propname, u8 *out_values,
++					size_t sz_min, size_t sz_max);
++extern int of_property_read_variable_u16_array(const struct device_node *np,
++					const char *propname, u16 *out_values,
++					size_t sz_min, size_t sz_max);
++extern int of_property_read_variable_u32_array(const struct device_node *np,
++					const char *propname,
++					u32 *out_values,
++					size_t sz_min,
++					size_t sz_max);
+ extern int of_property_read_u64(const struct device_node *np,
+ 				const char *propname, u64 *out_value);
+-extern int of_property_read_u64_array(const struct device_node *np,
+-				      const char *propname,
+-				      u64 *out_values,
+-				      size_t sz);
++extern int of_property_read_variable_u64_array(const struct device_node *np,
++					const char *propname,
++					u64 *out_values,
++					size_t sz_min,
++					size_t sz_max);
+ 
+ extern int of_property_read_string(struct device_node *np,
+ 				   const char *propname,

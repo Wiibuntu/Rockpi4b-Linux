@@ -1,0 +1,22 @@
+--- drivers/mmc/core/sdio_bus.c
++++ drivers/mmc/core/sdio_bus.c
+@@ -267,10 +271,17 @@ static void sdio_release_func(struct device *dev)
+ {
+ 	struct sdio_func *func = dev_to_sdio_func(dev);
+ 
+-	sdio_free_func_cis(func);
++#ifdef CONFIG_MMC_EMBEDDED_SDIO
++	/*
++	 * If this device is embedded then we never allocated
++	 * cis tables for this func
++	 */
++	if (!func->card->host->embedded_sdio_data.funcs)
++#endif
++		sdio_free_func_cis(func);
+ 
+ 	kfree(func->info);
+-
++	kfree(func->tmpbuf);
+ 	kfree(func);
+ }
+ 

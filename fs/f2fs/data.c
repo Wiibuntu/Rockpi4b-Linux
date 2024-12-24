@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/data.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
@@ -652,7 +649,7 @@ struct page *get_read_data_page(struct inode *inode, pgoff_t index,
 	}
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
-	err = get_dnode_of_data(&dn, index, LOOKUP_NODE);
+	err = f2fs_get_dnode_of_data(&dn, index, LOOKUP_NODE);
 	if (err)
 		goto put_err;
 	f2fs_put_dnode(&dn);
@@ -691,7 +688,7 @@ put_err:
 	return ERR_PTR(err);
 }
 
-struct page *find_data_page(struct inode *inode, pgoff_t index)
+struct page *f2fs_find_data_page(struct inode *inode, pgoff_t index)
 {
 	struct address_space *mapping = inode->i_mapping;
 	struct page *page;
@@ -1403,6 +1400,9 @@ static int f2fs_mpage_readpages(struct address_space *mapping,
 		if (last_block > last_block_in_file)
 			last_block = last_block_in_file;
 
+		/* just zeroing out page which is beyond EOF */
+		if (block_in_file >= last_block)
+			goto zero_out;
 		/*
 		 * Map blocks using the previous result first.
 		 */
@@ -1497,7 +1497,7 @@ static int f2fs_read_data_page(struct file *file, struct page *page)
 	if (f2fs_has_inline_data(inode))
 		ret = f2fs_read_inline_data(inode, page);
 	if (ret == -EAGAIN)
-		ret = f2fs_mpage_readpages(page->mapping, NULL, page, 1);
+		ret = f2fs_mpage_readpages(page->mapping, NULL, page, 1, false);
 	return ret;
 }
 
@@ -2534,6 +2534,59 @@ int f2fs_migrate_page(struct address_space *mapping,
 		migrate_page_copy(newpage, page);
 	else
 		migrate_page_states(newpage, page);
+
+	return MIGRATEPAGE_SUCCESS;
+}
+#endif
+
+#ifdef CONFIG_MIGRATION
+#include <linux/migrate.h>
+
+int f2fs_migrate_page(struct address_space *mapping,
+		struct page *newpage, struct page *page, enum migrate_mode mode)
+{
+	int rc, extra_count;
+	struct f2fs_inode_info *fi = F2FS_I(mapping->host);
+	bool atomic_written = IS_ATOMIC_WRITTEN_PAGE(page);
+
+	BUG_ON(PageWriteback(page));
+
+	/* migrating an atomic written page is safe with the inmem_lock hold */
+	if (atomic_written) {
+		if (mode != MIGRATE_SYNC)
+			return -EBUSY;
+		if (!mutex_trylock(&fi->inmem_lock))
+			return -EAGAIN;
+	}
+
+	/* one extra reference was held for atomic_write page */
+	extra_count = atomic_written ? 1 : 0;
+	rc = migrate_page_move_mapping(mapping, newpage,
+				page, NULL, mode, extra_count);
+	if (rc != MIGRATEPAGE_SUCCESS) {
+		if (atomic_written)
+			mutex_unlock(&fi->inmem_lock);
+		return rc;
+	}
+
+	if (atomic_written) {
+		struct inmem_pages *cur;
+		list_for_each_entry(cur, &fi->inmem_pages, list)
+			if (cur->page == page) {
+				cur->page = newpage;
+				break;
+			}
+		mutex_unlock(&fi->inmem_lock);
+		put_page(page);
+		get_page(newpage);
+	}
+
+	if (PagePrivate(page)) {
+		f2fs_set_page_private(newpage, page_private(page));
+		f2fs_clear_page_private(page);
+	}
+
+	migrate_page_copy(newpage, page);
 
 	return MIGRATEPAGE_SUCCESS;
 }

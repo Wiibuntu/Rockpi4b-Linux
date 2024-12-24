@@ -17,6 +17,18 @@ KCOV_INSTRUMENT_list_debug.o := n
 KCOV_INSTRUMENT_debugobjects.o := n
 KCOV_INSTRUMENT_dynamic_debug.o := n
 
+# These files are disabled because they produce lots of non-interesting and/or
+# flaky coverage that is not a function of syscall inputs. For example,
+# rbtree can be global and individual rotations don't correlate with inputs.
+KCOV_INSTRUMENT_string.o := n
+KCOV_INSTRUMENT_rbtree.o := n
+KCOV_INSTRUMENT_list_debug.o := n
+KCOV_INSTRUMENT_debugobjects.o := n
+KCOV_INSTRUMENT_dynamic_debug.o := n
+# Kernel does not boot if we instrument this file as it uses custom calling
+# convention (see CONFIG_ARCH_HWEIGHT_CFLAGS).
+KCOV_INSTRUMENT_hweight.o := n
+
 lib-y := ctype.o string.o vsprintf.o cmdline.o \
 	 rbtree.o radix-tree.o timerqueue.o\
 	 idr.o int_sqrt.o extable.o \
@@ -204,6 +216,9 @@ obj-$(CONFIG_IRQ_POLL) += irq_poll.o
 obj-$(CONFIG_STACKDEPOT) += stackdepot.o
 KASAN_SANITIZE_stackdepot.o := n
 KCOV_INSTRUMENT_stackdepot.o := n
+
+obj-$(CONFIG_STACKDEPOT) += stackdepot.o
+KASAN_SANITIZE_stackdepot.o := n
 
 libfdt_files = fdt.o fdt_ro.o fdt_wip.o fdt_rw.o fdt_sw.o fdt_strerror.o \
 	       fdt_empty_tree.o

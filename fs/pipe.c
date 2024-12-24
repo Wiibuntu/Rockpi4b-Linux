@@ -41,6 +41,12 @@ unsigned int pipe_max_size = 1048576;
 unsigned long pipe_user_pages_hard;
 unsigned long pipe_user_pages_soft = PIPE_DEF_BUFFERS * INR_OPEN_CUR;
 
+/* Maximum allocatable pages per user. Hard limit is unset by default, soft
+ * matches default values.
+ */
+unsigned long pipe_user_pages_hard;
+unsigned long pipe_user_pages_soft = PIPE_DEF_BUFFERS * INR_OPEN_CUR;
+
 /*
  * We use a start+len construction, which provides full use of the 
  * allocated memory.
@@ -1059,6 +1065,9 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long arg)
 	if (!nr_pages)
 		return -EINVAL;
 
+	if (!nr_pages)
+		return -EINVAL;
+
 	/*
 	 * If trying to increase the pipe capacity, check that an
 	 * unprivileged user is not trying to exceed various limits
@@ -1119,6 +1128,7 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long arg)
 			memcpy(bufs + head, pipe->bufs, tail * sizeof(struct pipe_buffer));
 	}
 
+	account_pipe_buffers(pipe, pipe->buffers, nr_pages);
 	pipe->curbuf = 0;
 	kfree(pipe->bufs);
 	pipe->bufs = bufs;

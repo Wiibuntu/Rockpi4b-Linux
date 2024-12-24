@@ -48,6 +48,11 @@
 #include <linux/pci.h>
 #endif
 
+#ifdef CONFIG_X86
+#include <asm/cpu_device_id.h>
+#include <asm/iosf_mbi.h>
+#endif
+
 #include "sdhci.h"
 
 enum {
@@ -203,6 +208,9 @@ static int intel_start_signal_voltage_switch(struct mmc_host *mmc,
 	err = intel_dsm(intel_host, dev, fn, &result);
 	pr_debug("%s: %s DSM fn %u error %d result %u\n",
 		 mmc_hostname(mmc), __func__, fn, err, result);
+
+	if (hid && !strcmp(hid, "80865ACA"))
+		host->mmc_host_ops.get_cd = bxt_get_cd;
 
 	return 0;
 }
@@ -637,6 +645,9 @@ static int sdhci_acpi_probe(struct platform_device *pdev)
 	if (!device)
 		return -ENODEV;
 
+	if (sdhci_acpi_byt_defer(dev))
+		return -EPROBE_DEFER;
+
 	hid = acpi_device_hid(device);
 	uid = acpi_device_uid(device);
 
@@ -801,6 +812,8 @@ static int sdhci_acpi_resume(struct device *dev)
 
 	sdhci_acpi_byt_setting(&c->pdev->dev);
 
+	sdhci_acpi_byt_setting(&c->pdev->dev);
+
 	return sdhci_resume_host(c->host);
 }
 
@@ -822,6 +835,8 @@ static int sdhci_acpi_runtime_suspend(struct device *dev)
 static int sdhci_acpi_runtime_resume(struct device *dev)
 {
 	struct sdhci_acpi_host *c = dev_get_drvdata(dev);
+
+	sdhci_acpi_byt_setting(&c->pdev->dev);
 
 	sdhci_acpi_byt_setting(&c->pdev->dev);
 

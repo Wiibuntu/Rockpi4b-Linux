@@ -281,4 +281,11 @@ void __noreturn usercopy_abort(const char *name, const char *detail,
 			       unsigned long len);
 #endif
 
+#ifndef user_access_begin
+#define user_access_begin() do { } while (0)
+#define user_access_end() do { } while (0)
+#define unsafe_get_user(x, ptr, err) do { if (unlikely(__get_user(x, ptr))) goto err; } while (0)
+#define unsafe_put_user(x, ptr, err) do { if (unlikely(__put_user(x, ptr))) goto err; } while (0)
+#endif
+
 #endif		/* __LINUX_UACCESS_H__ */

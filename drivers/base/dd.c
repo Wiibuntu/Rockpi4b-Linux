@@ -195,6 +195,8 @@ static void driver_deferred_probe_trigger(void)
 			      &deferred_probe_active_list);
 	mutex_unlock(&deferred_probe_mutex);
 
+	device_pm_check_callbacks(dev);
+
 	/*
 	 * Kick the re-probe thread.  It may already be scheduled, but it is
 	 * safe to kick it again.
@@ -435,14 +437,6 @@ re_probe:
 		if (ret)
 			goto probe_failed;
 	}
-
-	/*
-	 * Ensure devices are listed in devices_kset in correct order
-	 * It's important to move Dev to the end of devices_kset before
-	 * calling .probe, because it could be recursive and parent Dev
-	 * should always go first
-	 */
-	devices_kset_move_last(dev);
 
 	if (dev->bus->probe) {
 		ret = dev->bus->probe(dev);

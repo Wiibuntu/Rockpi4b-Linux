@@ -203,6 +203,29 @@
 #define DWC31_TXTHRNUMPKT_PRD(n)		(((n) & 0x1f) << 5)
 #define DWC31_MAXTXBURSTSIZE_PRD(n)		((n) & 0x1f)
 
+/* Global Debug Queue/FIFO Space Available Register */
+#define DWC3_GDBGFIFOSPACE_NUM(n)	((n) & 0x1f)
+#define DWC3_GDBGFIFOSPACE_TYPE(n)	(((n) << 5) & 0x1e0)
+#define DWC3_GDBGFIFOSPACE_SPACE_AVAILABLE(n) (((n) >> 16) & 0xffff)
+
+#define DWC3_TXFIFOQ		1
+#define DWC3_RXFIFOQ		3
+#define DWC3_TXREQQ		5
+#define DWC3_RXREQQ		7
+#define DWC3_RXINFOQ		9
+#define DWC3_DESCFETCHQ		13
+#define DWC3_EVENTQ		15
+
+/* Global TX Threshold Configuration Register */
+#define DWC3_GTXTHRCFG_MAXRXBURSTSIZE(n) (((n) & 0xff) << 16)
+#define DWC3_GTXTHRCFG_TXPKTCNT(n) (((n) & 0xf) << 24)
+#define DWC3_GTXTHRCFG_PKTCNTSEL BIT(29)
+
+/* Global RX Threshold Configuration Register */
+#define DWC3_GRXTHRCFG_MAXRXBURSTSIZE(n) (((n) & 0x1f) << 19)
+#define DWC3_GRXTHRCFG_RXPKTCNT(n) (((n) & 0xf) << 24)
+#define DWC3_GRXTHRCFG_PKTCNTSEL (1 << 29)
+
 /* Global Configuration Register */
 #define DWC3_GCTL_PWRDNSCALE(n)	((n) << 19)
 #define DWC3_GCTL_U2RSTECN	BIT(16)
@@ -300,6 +323,14 @@
 #define DWC3_GHWPARAMS0_SDWIDTH(n)	(((n) >> 16) & 0xff)
 #define DWC3_GHWPARAMS0_AWIDTH(n)	(((n) >> 24) & 0xff)
 
+/* Global HWPARAMS0 Register */
+#define DWC3_GHWPARAMS0_USB3_MODE(n)	((n) & 0x3)
+#define DWC3_GHWPARAMS0_MBUS_TYPE(n)	(((n) >> 3) & 0x7)
+#define DWC3_GHWPARAMS0_SBUS_TYPE(n)	(((n) >> 6) & 0x3)
+#define DWC3_GHWPARAMS0_MDWIDTH(n)	(((n) >> 8) & 0xff)
+#define DWC3_GHWPARAMS0_SDWIDTH(n)	(((n) >> 16) & 0xff)
+#define DWC3_GHWPARAMS0_AWIDTH(n)	(((n) >> 24) & 0xff)
+
 /* Global HWPARAMS1 Register */
 #define DWC3_GHWPARAMS1_EN_PWROPT(n)	(((n) & (3 << 24)) >> 24)
 #define DWC3_GHWPARAMS1_EN_PWROPT_NO	0
@@ -333,6 +364,10 @@
 #define DWC3_GHWPARAMS6_HNPSUPPORT		BIT(11)
 #define DWC3_GHWPARAMS6_SRPSUPPORT		BIT(10)
 #define DWC3_GHWPARAMS6_EN_FPGA			BIT(7)
+
+/* Global HWPARAMS7 Register */
+#define DWC3_GHWPARAMS7_RAM1_DEPTH(n)	((n) & 0xffff)
+#define DWC3_GHWPARAMS7_RAM2_DEPTH(n)	(((n) >> 16) & 0xffff)
 
 /* Global HWPARAMS7 Register */
 #define DWC3_GHWPARAMS7_RAM1_DEPTH(n)	((n) & 0xffff)
@@ -499,6 +534,8 @@
 #define DWC3_DEPCMD_SETEPCONFIG		(0x01 << 0)
 
 #define DWC3_DEPCMD_CMD(x)		((x) & 0xf)
+
+#define DWC3_DEPCMD_CMD(x)             ((x) & 0xf)
 
 /* The EP number goes 0..31 so ep0 is always out and ep1 is always in */
 #define DWC3_DALEPENA_EP(n)		BIT(n)
@@ -1216,6 +1253,10 @@ struct dwc3_event_depevt {
 #define DEPEVT_TRANSFER_NO_RESOURCE	1
 #define DEPEVT_TRANSFER_BUS_EXPIRY	2
 
+/* In response to Start Transfer */
+#define DEPEVT_TRANSFER_NO_RESOURCE	1
+#define DEPEVT_TRANSFER_BUS_EXPIRY	2
+
 	u32	parameters:16;
 
 /* For Command Complete Events */
@@ -1402,6 +1443,10 @@ static inline int dwc3_gadget_suspend(struct dwc3 *dwc)
 static inline int dwc3_gadget_resume(struct dwc3 *dwc)
 {
 	return 0;
+}
+
+static inline void dwc3_gadget_process_pending_events(struct dwc3 *dwc)
+{
 }
 
 static inline void dwc3_gadget_process_pending_events(struct dwc3 *dwc)

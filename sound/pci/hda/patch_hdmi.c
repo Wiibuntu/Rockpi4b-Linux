@@ -2483,6 +2483,10 @@ static void intel_pin_eld_notify(void *audio_ptr, int port, int pipe)
 		break;
 	}
 
+	/* we assume only from port-B to port-D */
+	if (port < 1 || port > 3)
+		return;
+
 	/* skip notification during system suspend (but not in runtime PM);
 	 * the state will be updated at resume
 	 */

@@ -1,0 +1,42 @@
+--- arch/s390/Kconfig
++++ arch/s390/Kconfig
+@@ -114,18 +117,21 @@ config S390
+ 	select GENERIC_CLOCKEVENTS
+ 	select GENERIC_CPU_AUTOPROBE
+ 	select GENERIC_CPU_DEVICES if !SMP
++	select GENERIC_CPU_VULNERABILITIES
+ 	select GENERIC_FIND_FIRST_BIT
+ 	select GENERIC_SMP_IDLE_THREAD
+ 	select GENERIC_TIME_VSYSCALL
+ 	select HAVE_ALIGNED_STRUCT_PAGE if SLUB
+ 	select HAVE_ARCH_AUDITSYSCALL
+ 	select HAVE_ARCH_EARLY_PFN_TO_NID
++	select HAVE_ARCH_HARDENED_USERCOPY
+ 	select HAVE_ARCH_JUMP_LABEL
+ 	select HAVE_ARCH_SECCOMP_FILTER
+ 	select HAVE_ARCH_SOFT_DIRTY
+ 	select HAVE_ARCH_TRACEHOOK
+ 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
+ 	select HAVE_BPF_JIT if PACK_STACK && HAVE_MARCH_Z196_FEATURES
++	select HAVE_EBPF_JIT if PACK_STACK && HAVE_MARCH_Z196_FEATURES
+ 	select HAVE_CMPXCHG_DOUBLE
+ 	select HAVE_CMPXCHG_LOCAL
+ 	select HAVE_DEBUG_KMEMLEAK
+@@ -349,9 +355,6 @@ config COMPAT
+ config SYSVIPC_COMPAT
+ 	def_bool y if COMPAT && SYSVIPC
+ 
+-config KEYS_COMPAT
+-	def_bool y if COMPAT && KEYS
+-
+ config SMP
+ 	def_bool y
+ 	prompt "Symmetric multi-processing support"
+@@ -804,6 +852,7 @@ config PFAULT
+ config SHARED_KERNEL
+ 	bool "VM shared kernel support"
+ 	depends on !JUMP_LABEL
++	depends on !ALTERNATIVES
+ 	help
+ 	  Select this option, if you want to share the text segment of the
+ 	  Linux kernel between different VM guests. This reduces memory

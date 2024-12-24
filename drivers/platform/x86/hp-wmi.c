@@ -872,6 +872,7 @@ fail:
 static int __init hp_wmi_bios_setup(struct platform_device *device)
 {
 	int err;
+	int val;
 
 	/* clear detected rfkill devices */
 	wifi_rfkill = NULL;

@@ -854,6 +854,8 @@ static struct usb_request *dwc3_gadget_ep_alloc_request(struct usb_ep *ep,
 
 	dep->allocated_requests++;
 
+	dep->allocated_requests++;
+
 	trace_dwc3_alloc_request(req);
 
 	return &req->request;
@@ -1301,6 +1303,22 @@ static int __dwc3_gadget_ep_queue(struct dwc3_ep *dep, struct dwc3_request *req)
 
 	pm_runtime_get(dwc->dev);
 
+	if (!dep->endpoint.desc) {
+		dwc3_trace(trace_dwc3_gadget,
+				"trying to queue request %p to disabled %s",
+				&req->request, dep->endpoint.name);
+		return -ESHUTDOWN;
+	}
+
+	if (WARN(req->dep != dep, "request %pK belongs to '%s'\n",
+				&req->request, req->dep->name)) {
+		dwc3_trace(trace_dwc3_gadget, "request %p belongs to '%s'",
+				&req->request, req->dep->name);
+		return -EINVAL;
+	}
+
+	pm_runtime_get(dwc->dev);
+
 	req->request.actual	= 0;
 	req->request.status	= -EINPROGRESS;
 	req->direction		= dep->direction;
@@ -1309,6 +1327,17 @@ static int __dwc3_gadget_ep_queue(struct dwc3_ep *dep, struct dwc3_request *req)
 	trace_dwc3_ep_queue(req);
 
 	list_add_tail(&req->list, &dep->pending_list);
+
+	/*
+	 * Per databook, the total size of buffer must be a multiple
+	 * of MaxPacketSize for OUT endpoints. And MaxPacketSize is
+	 * configed for endpoints in dwc3_gadget_set_ep_config(),
+	 * set to usb_endpoint_descriptor->wMaxPacketSize.
+	 */
+	if (dep->direction == 0 &&
+	    req->request.length % dep->endpoint.desc->wMaxPacketSize)
+		req->request.length = roundup(req->request.length,
+					dep->endpoint.desc->wMaxPacketSize);
 
 	/*
 	 * NOTICE: Isochronous endpoints should NEVER be prestarted. We must
@@ -1342,6 +1371,32 @@ static int __dwc3_gadget_ep_queue(struct dwc3_ep *dep, struct dwc3_request *req)
 
 out:
 	return __dwc3_gadget_kick_transfer(dep);
+}
+
+static void __dwc3_gadget_ep_zlp_complete(struct usb_ep *ep,
+		struct usb_request *request)
+{
+	dwc3_gadget_ep_free_request(ep, request);
+}
+
+static int __dwc3_gadget_ep_queue_zlp(struct dwc3 *dwc, struct dwc3_ep *dep)
+{
+	struct dwc3_request		*req;
+	struct usb_request		*request;
+	struct usb_ep			*ep = &dep->endpoint;
+
+	dwc3_trace(trace_dwc3_gadget, "queueing ZLP");
+	request = dwc3_gadget_ep_alloc_request(ep, GFP_ATOMIC);
+	if (!request)
+		return -ENOMEM;
+
+	request->length = 0;
+	request->buf = dwc->zlp_buf;
+	request->complete = __dwc3_gadget_ep_zlp_complete;
+
+	req = to_dwc3_request(request);
+
+	return __dwc3_gadget_ep_queue(dep, req);
 }
 
 static int dwc3_gadget_ep_queue(struct usb_ep *ep, struct usb_request *request,
@@ -1699,6 +1754,9 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 {
 	u32			reg;
 	u32			timeout = 500;
+
+	if (pm_runtime_suspended(dwc->dev))
+		return 0;
 
 	if (pm_runtime_suspended(dwc->dev))
 		return 0;
@@ -2402,6 +2460,10 @@ static int dwc3_cleanup_done_reqs(struct dwc3 *dwc, struct dwc3_ep *dep,
 	if (usb_endpoint_xfer_isoc(dep->endpoint.desc) && ioc)
 		return 0;
 
+	if (usb_endpoint_xfer_isoc(dep->endpoint.desc))
+		if ((event->status & DEPEVT_STATUS_IOC) &&
+				(trb->ctrl & DWC3_TRB_CTRL_IOC))
+			return 0;
 	return 1;
 }
 
@@ -2478,6 +2540,9 @@ static void dwc3_endpoint_interrupt(struct dwc3 *dwc,
 	}
 
 	if (epnum == 0 || epnum == 1) {
+		if (!dwc->connected &&
+		    event->endpoint_event == DWC3_DEPEVT_XFERCOMPLETE)
+			dwc->connected = true;
 		dwc3_ep0_interrupt(dwc, event);
 		return;
 	}
@@ -2946,6 +3011,17 @@ static void dwc3_gadget_linksts_change_interrupt(struct dwc3 *dwc,
 		/* do nothing */
 		break;
 	}
+
+	dwc->link_state = next;
+}
+
+static void dwc3_gadget_suspend_interrupt(struct dwc3 *dwc,
+					  unsigned int evtinfo)
+{
+	enum dwc3_link_state next = evtinfo & DWC3_LINK_STATE_MASK;
+
+	if (dwc->link_state != next && next == DWC3_LINK_STATE_U3)
+		dwc3_suspend_gadget(dwc);
 
 	dwc->link_state = next;
 }

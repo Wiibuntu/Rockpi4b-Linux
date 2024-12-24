@@ -61,6 +61,8 @@ struct ps8622_bridge {
 
 	u32 max_lane_count;
 	u32 lane_count;
+	u32 bus_format;
+	bool dual_channel;
 
 	bool enabled;
 };
@@ -99,6 +101,7 @@ static int ps8622_set(struct i2c_client *client, u8 page, u8 reg, u8 val)
 static int ps8622_send_config(struct ps8622_bridge *ps8622)
 {
 	struct i2c_client *cl = ps8622->client;
+	u8 format;
 	int err = 0;
 
 	/* HPD low */
@@ -302,8 +305,22 @@ static int ps8622_send_config(struct ps8622_bridge *ps8622)
 			goto error;
 	}
 
-	/* Set LVDS output as 6bit-VESA mapping, single LVDS channel */
-	err = ps8622_set(cl, 0x01, 0xcc, 0x13);
+	switch (ps8622->bus_format) {
+	case MEDIA_BUS_FMT_RGB666_1X7X3_SPWG:
+		format = 0x03;
+		break;
+	case MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA:
+		format = 0x01;
+		break;
+	case MEDIA_BUS_FMT_RGB888_1X7X4_SPWG:
+	default:
+		format = 0x00;
+		break;
+	}
+
+	/* Set LVDS color depth, data mapping and single/dual link */
+	err = ps8622_set(cl, 0x01, 0xcc, 0x10 | (ps8622->dual_channel << 2) |
+			 format);
 	if (err)
 		goto error;
 
@@ -464,11 +481,22 @@ static void ps8622_post_disable(struct drm_bridge *bridge)
 
 static int ps8622_get_modes(struct drm_connector *connector)
 {
-	struct ps8622_bridge *ps8622;
+	struct ps8622_bridge *ps8622 = connector_to_ps8622(connector);
+	struct drm_display_info *info = &connector->display_info;
+	u32 bus_format = MEDIA_BUS_FMT_RGB888_1X24;
+	int num_modes = 0;
 
-	ps8622 = connector_to_ps8622(connector);
+	num_modes = drm_panel_get_modes(ps8622->panel);
 
-	return drm_panel_get_modes(ps8622->panel);
+	if (info->num_bus_formats)
+		ps8622->bus_format = info->bus_formats[0];
+	else
+		ps8622->bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_SPWG;
+
+	drm_display_info_set_bus_formats(&connector->display_info,
+					 &bus_format, 1);
+
+	return num_modes;
 }
 
 static const struct drm_connector_helper_funcs ps8622_connector_helper_funcs = {
@@ -493,6 +521,7 @@ static int ps8622_attach(struct drm_bridge *bridge)
 		return -ENODEV;
 	}
 
+	ps8622->connector.port = ps8622->client->dev.of_node;
 	ps8622->connector.polled = DRM_CONNECTOR_POLL_HPD;
 	ret = drm_connector_init(bridge->dev, &ps8622->connector,
 			&ps8622_connector_funcs, DRM_MODE_CONNECTOR_LVDS);
@@ -502,7 +531,6 @@ static int ps8622_attach(struct drm_bridge *bridge)
 	}
 	drm_connector_helper_add(&ps8622->connector,
 					&ps8622_connector_helper_funcs);
-	drm_connector_register(&ps8622->connector);
 	drm_mode_connector_attach_encoder(&ps8622->connector,
 							bridge->encoder);
 

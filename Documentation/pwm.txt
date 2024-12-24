@@ -141,6 +141,15 @@ The implementation of ->get_state() (a method used to retrieve initial PWM
 state) is also encouraged for the same reason: letting the PWM user know
 about the current PWM state would allow him to avoid glitches.
 
+Drivers are encouraged to implement ->apply() instead of the legacy
+->enable(), ->disable() and ->config() methods. Doing that should provide
+atomicity in the PWM config workflow, which is required when the PWM controls
+a critical device (like a regulator).
+
+The implementation of ->get_state() (a method used to retrieve initial PWM
+state) is also encouraged for the same reason: letting the PWM user know
+about the current PWM state would allow him to avoid glitches.
+
 Locking
 -------
 

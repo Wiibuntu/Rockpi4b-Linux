@@ -1,0 +1,365 @@
+--- drivers/mmc/core/core.c
++++ drivers/mmc/core/core.c
+@@ -63,9 +71,6 @@
+  */
+ #define MMC_BKOPS_MAX_TIMEOUT	(4 * 60 * 1000) /* max time to wait in ms */
+ 
+-static struct workqueue_struct *workqueue;
+-static const unsigned freqs[] = { 400000, 300000, 200000, 100000 };
+-
+ /*
+  * Enabling software CRCs on the data blocks can be a significant (30%)
+  * performance cost, and for other reasons may not always be desired.
+@@ -74,21 +79,16 @@ static const unsigned freqs[] = { 400000, 300000, 200000, 100000 };
+ bool use_spi_crc = 1;
+ module_param(use_spi_crc, bool, 0);
+ 
+-/*
+- * Internal function. Schedule delayed work in the MMC work queue.
+- */
+ static int mmc_schedule_delayed_work(struct delayed_work *work,
+ 				     unsigned long delay)
+ {
+-	return queue_delayed_work(workqueue, work, delay);
+-}
+-
+-/*
+- * Internal function. Flush all scheduled work from the MMC work queue.
+- */
+-static void mmc_flush_scheduled_work(void)
+-{
+-	flush_workqueue(workqueue);
++	/*
++	 * We use the system_freezable_wq, because of two reasons.
++	 * First, it allows several works (not the same work item) to be
++	 * executed simultaneously. Second, the queue becomes frozen when
++	 * userspace becomes frozen during system PM.
++	 */
++	return queue_delayed_work(system_freezable_wq, work, delay);
+ }
+ 
+ #ifdef CONFIG_FAIL_MMC_REQUEST
+@@ -641,8 +657,19 @@ struct mmc_async_req *mmc_start_req(struct mmc_host *host,
+ 		}
+ 	}
+ 
+-	if (!err && areq)
++	if (!err && areq) {
++#ifdef CONFIG_BLOCK
++		if (host->latency_hist_enabled) {
++			areq->mrq->io_start = ktime_get();
++			areq->mrq->lat_hist_enabled = 1;
++		} else
++			areq->mrq->lat_hist_enabled = 0;
++#endif
++		trace_mmc_blk_rw_start(areq->mrq->cmd->opcode,
++				       areq->mrq->cmd->arg,
++				       areq->mrq->data);
+ 		start_err = __mmc_start_data_req(host, areq->mrq);
++	}
+ 
+ 	if (host->areq)
+ 		mmc_post_req(host, host->areq->mrq, 0);
+@@ -898,11 +925,11 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
+ 	/*
+ 	 * Some cards require longer data read timeout than indicated in CSD.
+ 	 * Address this by setting the read timeout to a "reasonably high"
+-	 * value. For the cards tested, 300ms has proven enough. If necessary,
++	 * value. For the cards tested, 600ms has proven enough. If necessary,
+ 	 * this value can be increased if other problematic cards require this.
+ 	 */
+ 	if (mmc_card_long_read_time(card) && data->flags & MMC_DATA_READ) {
+-		data->timeout_ns = 300000000;
++		data->timeout_ns = 600000000;
+ 		data->timeout_clks = 0;
+ 	}
+ 
+@@ -1063,7 +1090,7 @@ static inline void mmc_set_ios(struct mmc_host *host)
+ 		"width %u timing %u\n",
+ 		 mmc_hostname(host), ios->clock, ios->bus_mode,
+ 		 ios->power_mode, ios->chip_select, ios->vdd,
+-		 ios->bus_width, ios->timing);
++		 1 << ios->bus_width, ios->timing);
+ 
+ 	host->ops->set_ios(host, ios);
+ }
+@@ -1109,7 +1136,7 @@ int mmc_execute_tuning(struct mmc_card *card)
+ 	err = host->ops->execute_tuning(host, opcode);
+ 
+ 	if (err)
+-		pr_err("%s: tuning execution failed\n", mmc_hostname(host));
++		pr_err_ratelimited("%s: tuning execution failed\n", mmc_hostname(host));
+ 	else
+ 		mmc_retune_enable(host);
+ 
+@@ -1149,6 +1176,11 @@ void mmc_set_initial_state(struct mmc_host *host)
+ 	host->ios.bus_width = MMC_BUS_WIDTH_1;
+ 	host->ios.timing = MMC_TIMING_LEGACY;
+ 	host->ios.drv_type = 0;
++	host->ios.enhanced_strobe = false;
++
++	if ((host->caps2 & MMC_CAP2_HS400_ES) &&
++		host->ops->hs400_enhanced_strobe)
++		host->ops->hs400_enhanced_strobe(host, &host->ios);
+ 
+ 	mmc_set_ios(host);
+ }
+@@ -1244,8 +1276,12 @@ int mmc_of_parse_voltage(struct device_node *np, u32 *mask)
+ 
+ 	voltage_ranges = of_get_property(np, "voltage-ranges", &num_ranges);
+ 	num_ranges = num_ranges / sizeof(*voltage_ranges) / 2;
+-	if (!voltage_ranges || !num_ranges) {
+-		pr_info("%s: voltage-ranges unspecified\n", np->full_name);
++	if (!voltage_ranges) {
++		pr_debug("%s: voltage-ranges unspecified\n", np->full_name);
++		return -EINVAL;
++	}
++	if (!num_ranges) {
++		pr_err("%s: voltage-ranges empty\n", np->full_name);
+ 		return -EINVAL;
+ 	}
+ 
+@@ -1566,6 +1602,29 @@ u32 mmc_select_voltage(struct mmc_host *host, u32 ocr)
+ 	return ocr;
+ }
+ 
++int mmc_host_set_uhs_voltage(struct mmc_host *host, int signal_voltage)
++{
++	u32 clock;
++
++	/*
++	 * During a signal voltage level switch, the clock must be gated
++	 * for 5 ms according to the SD spec
++	 */
++	clock = host->ios.clock;
++	host->ios.clock = 0;
++	mmc_set_ios(host);
++
++	if (__mmc_set_signal_voltage(host, signal_voltage))
++		return -EAGAIN;
++
++	/* Keep clock gated for at least 10 ms, though spec only says 5 ms */
++	mmc_delay(10);
++	host->ios.clock = clock;
++	mmc_set_ios(host);
++
++	return 0;
++}
++
+ int __mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
+ {
+ 	int err = 0;
+@@ -1586,7 +1645,6 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage, u32 ocr)
+ {
+ 	struct mmc_command cmd = {0};
+ 	int err = 0;
+-	u32 clock;
+ 
+ 	BUG_ON(!host);
+ 
+@@ -1627,15 +1685,8 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage, u32 ocr)
+ 		err = -EAGAIN;
+ 		goto power_cycle;
+ 	}
+-	/*
+-	 * During a signal voltage level switch, the clock must be gated
+-	 * for 5 ms according to the SD spec
+-	 */
+-	clock = host->ios.clock;
+-	host->ios.clock = 0;
+-	mmc_set_ios(host);
+ 
+-	if (__mmc_set_signal_voltage(host, signal_voltage)) {
++	if (mmc_host_set_uhs_voltage(host, signal_voltage)) {
+ 		/*
+ 		 * Voltages may not have been switched, but we've already
+ 		 * sent CMD11, so a power cycle is required anyway
+@@ -1644,11 +1695,6 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage, u32 ocr)
+ 		goto power_cycle;
+ 	}
+ 
+-	/* Keep clock gated for at least 10 ms, though spec only says 5 ms */
+-	mmc_delay(10);
+-	host->ios.clock = clock;
+-	mmc_set_ios(host);
+-
+ 	/* Wait for at least 1 ms according to spec */
+ 	mmc_delay(1);
+ 
+@@ -2432,7 +2484,8 @@ int mmc_set_blocklen(struct mmc_card *card, unsigned int blocklen)
+ {
+ 	struct mmc_command cmd = {0};
+ 
+-	if (mmc_card_blockaddr(card) || mmc_card_ddr52(card))
++	if (mmc_card_blockaddr(card) || mmc_card_ddr52(card) ||
++	    mmc_card_hs400(card) || mmc_card_hs400es(card))
+ 		return 0;
+ 
+ 	cmd.opcode = MMC_SET_BLOCKLEN;
+@@ -2507,6 +2560,7 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
+ 	 * if the card is being re-initialized, just send it.  CMD52
+ 	 * should be ignored by SD/eMMC cards.
+ 	 */
++#ifdef MMC_STANDARD_PROBE
+ 	sdio_reset(host);
+ 	mmc_go_idle(host);
+ 
+@@ -2519,7 +2573,26 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
+ 		return 0;
+ 	if (!mmc_attach_mmc(host))
+ 		return 0;
++#else
++	if (host->restrict_caps & RESTRICT_CARD_TYPE_SDIO)
++		sdio_reset(host);
++
++	mmc_go_idle(host);
+ 
++	if (host->restrict_caps &
++	    (RESTRICT_CARD_TYPE_SDIO | RESTRICT_CARD_TYPE_SD))
++		mmc_send_if_cond(host, host->ocr_avail);
++	/* Order's important: probe SDIO, then SD, then MMC */
++	if ((host->restrict_caps & RESTRICT_CARD_TYPE_SDIO) &&
++	    !mmc_attach_sdio(host))
++		return 0;
++	if ((host->restrict_caps & RESTRICT_CARD_TYPE_SD) &&
++	     !mmc_attach_sd(host))
++		return 0;
++	if ((host->restrict_caps & RESTRICT_CARD_TYPE_EMMC) &&
++	     !mmc_attach_mmc(host))
++		return 0;
++#endif
+ 	mmc_power_off(host);
+ 	return -EIO;
+ }
+@@ -2693,7 +2766,6 @@ void mmc_stop_host(struct mmc_host *host)
+ 
+ 	host->rescan_disable = 1;
+ 	cancel_delayed_work_sync(&host->detect);
+-	mmc_flush_scheduled_work();
+ 
+ 	/* clear pm flags now and let card drivers set them as needed */
+ 	host->pm_flags = 0;
+@@ -2778,8 +2850,9 @@ int mmc_flush_cache(struct mmc_card *card)
+ 	if (mmc_card_mmc(card) &&
+ 			(card->ext_csd.cache_size > 0) &&
+ 			(card->ext_csd.cache_ctrl & 1)) {
+-		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+-				EXT_CSD_FLUSH_CACHE, 1, 0);
++		err = __mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
++				   EXT_CSD_FLUSH_CACHE, 1, 0,
++				   true, false, false);
+ 		if (err)
+ 			pr_err("%s: cache flush error %d\n",
+ 					mmc_hostname(card->host), err);
+@@ -2870,17 +2951,29 @@ void mmc_init_context_info(struct mmc_host *host)
+ 	init_waitqueue_head(&host->context_info.wait);
+ }
+ 
++#ifdef CONFIG_MMC_EMBEDDED_SDIO
++void mmc_set_embedded_sdio_data(struct mmc_host *host,
++				struct sdio_cis *cis,
++				struct sdio_cccr *cccr,
++				struct sdio_embedded_func *funcs,
++				int num_funcs)
++{
++	host->embedded_sdio_data.cis = cis;
++	host->embedded_sdio_data.cccr = cccr;
++	host->embedded_sdio_data.funcs = funcs;
++	host->embedded_sdio_data.num_funcs = num_funcs;
++}
++
++EXPORT_SYMBOL(mmc_set_embedded_sdio_data);
++#endif
++
+ static int __init mmc_init(void)
+ {
+ 	int ret;
+ 
+-	workqueue = alloc_ordered_workqueue("kmmcd", 0);
+-	if (!workqueue)
+-		return -ENOMEM;
+-
+ 	ret = mmc_register_bus();
+ 	if (ret)
+-		goto destroy_workqueue;
++		return ret;
+ 
+ 	ret = mmc_register_host_class();
+ 	if (ret)
+@@ -2896,9 +2989,6 @@ unregister_host_class:
+ 	mmc_unregister_host_class();
+ unregister_bus:
+ 	mmc_unregister_bus();
+-destroy_workqueue:
+-	destroy_workqueue(workqueue);
+-
+ 	return ret;
+ }
+ 
+@@ -2907,9 +2997,65 @@ static void __exit mmc_exit(void)
+ 	sdio_unregister_bus();
+ 	mmc_unregister_host_class();
+ 	mmc_unregister_bus();
+-	destroy_workqueue(workqueue);
+ }
+ 
++#ifdef CONFIG_BLOCK
++static ssize_t
++latency_hist_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mmc_host *host = cls_dev_to_mmc_host(dev);
++	size_t written_bytes;
++
++	written_bytes = blk_latency_hist_show("Read", &host->io_lat_read,
++			buf, PAGE_SIZE);
++	written_bytes += blk_latency_hist_show("Write", &host->io_lat_write,
++			buf + written_bytes, PAGE_SIZE - written_bytes);
++
++	return written_bytes;
++}
++
++/*
++ * Values permitted 0, 1, 2.
++ * 0 -> Disable IO latency histograms (default)
++ * 1 -> Enable IO latency histograms
++ * 2 -> Zero out IO latency histograms
++ */
++static ssize_t
++latency_hist_store(struct device *dev, struct device_attribute *attr,
++		   const char *buf, size_t count)
++{
++	struct mmc_host *host = cls_dev_to_mmc_host(dev);
++	long value;
++
++	if (kstrtol(buf, 0, &value))
++		return -EINVAL;
++	if (value == BLK_IO_LAT_HIST_ZERO) {
++		memset(&host->io_lat_read, 0, sizeof(host->io_lat_read));
++		memset(&host->io_lat_write, 0, sizeof(host->io_lat_write));
++	} else if (value == BLK_IO_LAT_HIST_ENABLE ||
++		 value == BLK_IO_LAT_HIST_DISABLE)
++		host->latency_hist_enabled = value;
++	return count;
++}
++
++static DEVICE_ATTR(latency_hist, S_IRUGO | S_IWUSR,
++		   latency_hist_show, latency_hist_store);
++
++void
++mmc_latency_hist_sysfs_init(struct mmc_host *host)
++{
++	if (device_create_file(&host->class_dev, &dev_attr_latency_hist))
++		dev_err(&host->class_dev,
++			"Failed to create latency_hist sysfs entry\n");
++}
++
++void
++mmc_latency_hist_sysfs_exit(struct mmc_host *host)
++{
++	device_remove_file(&host->class_dev, &dev_attr_latency_hist);
++}
++#endif
++
+ subsys_initcall(mmc_init);
+ module_exit(mmc_exit);
+ 

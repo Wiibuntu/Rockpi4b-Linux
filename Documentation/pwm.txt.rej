@@ -1,0 +1,31 @@
+--- Documentation/pwm.txt
++++ Documentation/pwm.txt
+@@ -42,9 +42,26 @@ variants of these functions, devm_pwm_get() and devm_pwm_put(), also exist.
+ 
+ After being requested, a PWM has to be configured using:
+ 
+-int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns);
++int pwm_apply_state(struct pwm_device *pwm, struct pwm_state *state);
+ 
+-To start/stop toggling the PWM output use pwm_enable()/pwm_disable().
++This API controls both the PWM period/duty_cycle config and the
++enable/disable state.
++
++The pwm_config(), pwm_enable() and pwm_disable() functions are just wrappers
++around pwm_apply_state() and should not be used if the user wants to change
++several parameter at once. For example, if you see pwm_config() and
++pwm_{enable,disable}() calls in the same function, this probably means you
++should switch to pwm_apply_state().
++
++The PWM user API also allows one to query the PWM state with pwm_get_state().
++
++In addition to the PWM state, the PWM API also exposes PWM arguments, which
++are the reference PWM config one should use on this PWM.
++PWM arguments are usually platform-specific and allows the PWM user to only
++care about dutycycle relatively to the full period (like, duty = 50% of the
++period). struct pwm_args contains 2 fields (period and polarity) and should
++be used to set the initial PWM config (usually done in the probe function
++of the PWM user). PWM arguments are retrieved with pwm_get_args().
+ 
+ Using PWMs with the sysfs interface
+ -----------------------------------

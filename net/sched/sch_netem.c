@@ -419,6 +419,25 @@ static void netem_enqueue_skb_head(struct qdisc_skb_head *qh, struct sk_buff *sk
 	qh->qlen++;
 }
 
+/* netem can't properly corrupt a megapacket (like we get from GSO), so instead
+ * when we statistically choose to corrupt one, we instead segment it, returning
+ * the first packet to be corrupted, and re-enqueue the remaining frames
+ */
+static struct sk_buff *netem_segment(struct sk_buff *skb, struct Qdisc *sch)
+{
+	struct sk_buff *segs;
+	netdev_features_t features = netif_skb_features(skb);
+
+	segs = skb_gso_segment(skb, features & ~NETIF_F_GSO_MASK);
+
+	if (IS_ERR_OR_NULL(segs)) {
+		qdisc_reshape_fail(skb, sch);
+		return NULL;
+	}
+	consume_skb(skb);
+	return segs;
+}
+
 /*
  * Insert one skb into qdisc.
  * Note: parent depends on return value to account for queue length.

@@ -384,6 +384,11 @@ config ROCKCHIP_PHY
         ---help---
           Currently supports the integrated Ethernet PHY.
 
+config ROCKCHIP_PHY
+	tristate "Driver for Rockchip Ethernet PHYs"
+	---help---
+	  Currently supports the integrated Ethernet PHY.
+
 config SMSC_PHY
 	tristate "SMSC PHYs"
 	---help---

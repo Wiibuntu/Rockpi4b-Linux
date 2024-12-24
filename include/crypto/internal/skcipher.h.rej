@@ -1,0 +1,88 @@
+--- include/crypto/internal/skcipher.h
++++ include/crypto/internal/skcipher.h
+@@ -19,12 +19,46 @@
+ 
+ struct rtattr;
+ 
++struct skcipher_instance {
++	void (*free)(struct skcipher_instance *inst);
++	union {
++		struct {
++			char head[offsetof(struct skcipher_alg, base)];
++			struct crypto_instance base;
++		} s;
++		struct skcipher_alg alg;
++	};
++};
++
+ struct crypto_skcipher_spawn {
+ 	struct crypto_spawn base;
+ };
+ 
+ extern const struct crypto_type crypto_givcipher_type;
+ 
++static inline struct crypto_instance *skcipher_crypto_instance(
++	struct skcipher_instance *inst)
++{
++	return &inst->s.base;
++}
++
++static inline struct skcipher_instance *skcipher_alg_instance(
++	struct crypto_skcipher *skcipher)
++{
++	return container_of(crypto_skcipher_alg(skcipher),
++			    struct skcipher_instance, alg);
++}
++
++static inline void *skcipher_instance_ctx(struct skcipher_instance *inst)
++{
++	return crypto_instance_ctx(skcipher_crypto_instance(inst));
++}
++
++static inline void skcipher_request_complete(struct skcipher_request *req, int err)
++{
++	req->base.complete(&req->base, err);
++}
++
+ static inline void crypto_set_skcipher_spawn(
+ 	struct crypto_skcipher_spawn *spawn, struct crypto_instance *inst)
+ {
+@@ -49,6 +85,12 @@ static inline struct crypto_alg *crypto_skcipher_spawn_alg(
+ 	return spawn->base.alg;
+ }
+ 
++static inline struct skcipher_alg *crypto_spawn_skcipher_alg(
++	struct crypto_skcipher_spawn *spawn)
++{
++	return container_of(spawn->base.alg, struct skcipher_alg, base);
++}
++
+ static inline struct crypto_ablkcipher *crypto_spawn_skcipher(
+ 	struct crypto_skcipher_spawn *spawn)
+ {
+@@ -57,6 +99,25 @@ static inline struct crypto_ablkcipher *crypto_spawn_skcipher(
+ 				 crypto_skcipher_mask(0)));
+ }
+ 
++static inline struct crypto_skcipher *crypto_spawn_skcipher2(
++	struct crypto_skcipher_spawn *spawn)
++{
++	return crypto_spawn_tfm2(&spawn->base);
++}
++
++static inline void crypto_skcipher_set_reqsize(
++	struct crypto_skcipher *skcipher, unsigned int reqsize)
++{
++	skcipher->reqsize = reqsize;
++}
++
++int crypto_register_skcipher(struct skcipher_alg *alg);
++void crypto_unregister_skcipher(struct skcipher_alg *alg);
++int crypto_register_skciphers(struct skcipher_alg *algs, int count);
++void crypto_unregister_skciphers(struct skcipher_alg *algs, int count);
++int skcipher_register_instance(struct crypto_template *tmpl,
++			       struct skcipher_instance *inst);
++
+ int skcipher_null_givencrypt(struct skcipher_givcrypt_request *req);
+ int skcipher_null_givdecrypt(struct skcipher_givcrypt_request *req);
+ const char *crypto_default_geniv(const struct crypto_alg *alg);

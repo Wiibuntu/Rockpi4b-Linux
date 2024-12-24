@@ -1,0 +1,11 @@
+--- arch/mips/math-emu/sp_fint.c
++++ arch/mips/math-emu/sp_fint.c
+@@ -23,7 +23,7 @@
+ 
+ union ieee754sp ieee754sp_fint(int x)
+ {
+-	unsigned xm;
++	unsigned int xm;
+ 	int xe;
+ 	int xs;
+ 

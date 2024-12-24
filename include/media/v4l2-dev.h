@@ -255,6 +255,9 @@ struct video_device
 
 	u32 device_caps;
 
+	/* device capabilities as used in v4l2_capabilities */
+	u32 device_caps;
+
 	/* sysfs */
 	struct device dev;
 	struct cdev *cdev;

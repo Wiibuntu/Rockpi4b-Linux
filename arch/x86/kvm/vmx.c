@@ -122,6 +122,14 @@ module_param_named(pml, enable_pml, bool, S_IRUGO);
 #define MSR_BITMAP_MODE_X2APIC_APICV	2
 #define MSR_BITMAP_MODE_LM		4
 
+#define MSR_TYPE_R	1
+#define MSR_TYPE_W	2
+#define MSR_TYPE_RW	3
+
+#define MSR_BITMAP_MODE_X2APIC		1
+#define MSR_BITMAP_MODE_X2APIC_APICV	2
+#define MSR_BITMAP_MODE_LM		4
+
 #define KVM_VMX_TSC_MULTIPLIER_MAX     0xffffffffffffffffULL
 
 /* Guest_tsc -> host_tsc conversion requires 64-bit division.  */
@@ -147,6 +155,12 @@ module_param_named(preemption_timer, enable_preemption_timer, bool, S_IRUGO);
 #define RMODE_GUEST_OWNED_EFLAGS_BITS (~(X86_EFLAGS_IOPL | X86_EFLAGS_VM))
 
 #define VMX_MISC_EMULATED_PREEMPTION_TIMER_RATE 5
+
+#define VMX_VPID_EXTENT_SUPPORTED_MASK		\
+	(VMX_VPID_EXTENT_INDIVIDUAL_ADDR_BIT |	\
+	VMX_VPID_EXTENT_SINGLE_CONTEXT_BIT |	\
+	VMX_VPID_EXTENT_GLOBAL_CONTEXT_BIT |	\
+	VMX_VPID_EXTENT_SINGLE_NON_GLOBAL_BIT)
 
 /*
  * Hyper-V requires all of these, so mark them as supported even though
@@ -1232,6 +1246,13 @@ static inline bool is_icebp(u32 intr_info)
 		== (INTR_TYPE_PRIV_SW_EXCEPTION | INTR_INFO_VALID_MASK);
 }
 
+/* Undocumented: icebp/int1 */
+static inline bool is_icebp(u32 intr_info)
+{
+	return (intr_info & (INTR_INFO_INTR_TYPE_MASK | INTR_INFO_VALID_MASK))
+		== (INTR_TYPE_PRIV_SW_EXCEPTION | INTR_INFO_VALID_MASK);
+}
+
 static inline bool cpu_has_vmx_msr_bitmap(void)
 {
 	return vmcs_config.cpu_based_exec_ctrl & CPU_BASED_USE_MSR_BITMAPS;
@@ -1401,6 +1422,11 @@ static inline bool cpu_has_vmx_invvpid_single(void)
 static inline bool cpu_has_vmx_invvpid_global(void)
 {
 	return vmx_capability.vpid & VMX_VPID_EXTENT_GLOBAL_CONTEXT_BIT;
+}
+
+static inline bool cpu_has_vmx_invvpid(void)
+{
+	return vmx_capability.vpid & VMX_VPID_INVVPID_BIT;
 }
 
 static inline bool cpu_has_vmx_invvpid(void)
@@ -2164,6 +2190,52 @@ static bool msr_write_intercepted_l01(struct kvm_vcpu *vcpu, u32 msr)
 	return true;
 }
 
+/*
+ * Check if MSR is intercepted for currently loaded MSR bitmap.
+ */
+static bool msr_write_intercepted(struct kvm_vcpu *vcpu, u32 msr)
+{
+	unsigned long *msr_bitmap;
+	int f = sizeof(unsigned long);
+
+	if (!cpu_has_vmx_msr_bitmap())
+		return true;
+
+	msr_bitmap = to_vmx(vcpu)->loaded_vmcs->msr_bitmap;
+
+	if (msr <= 0x1fff) {
+		return !!test_bit(msr, msr_bitmap + 0x800 / f);
+	} else if ((msr >= 0xc0000000) && (msr <= 0xc0001fff)) {
+		msr &= 0x1fff;
+		return !!test_bit(msr, msr_bitmap + 0xc00 / f);
+	}
+
+	return true;
+}
+
+/*
+ * Check if MSR is intercepted for L01 MSR bitmap.
+ */
+static bool msr_write_intercepted_l01(struct kvm_vcpu *vcpu, u32 msr)
+{
+	unsigned long *msr_bitmap;
+	int f = sizeof(unsigned long);
+
+	if (!cpu_has_vmx_msr_bitmap())
+		return true;
+
+	msr_bitmap = to_vmx(vcpu)->vmcs01.msr_bitmap;
+
+	if (msr <= 0x1fff) {
+		return !!test_bit(msr, msr_bitmap + 0x800 / f);
+	} else if ((msr >= 0xc0000000) && (msr <= 0xc0001fff)) {
+		msr &= 0x1fff;
+		return !!test_bit(msr, msr_bitmap + 0xc00 / f);
+	}
+
+	return true;
+}
+
 static void clear_atomic_switch_msr_special(struct vcpu_vmx *vmx,
 		unsigned long entry, unsigned long exit)
 {
@@ -2193,6 +2265,13 @@ static void clear_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr)
 			return;
 		}
 		break;
+	case MSR_IA32_PEBS_ENABLE:
+		/* PEBS needs a quiescent period after being disabled (to write
+		 * a record).  Disabling PEBS through VMX MSR swapping doesn't
+		 * provide that period, so a CPU could write host's record into
+		 * guest's memory.
+		 */
+		wrmsrl(MSR_IA32_PEBS_ENABLE, 0);
 	}
 
 	for (i = 0; i < m->nr; ++i)
@@ -2806,6 +2885,8 @@ static void vmx_queue_exception(struct kvm_vcpu *vcpu)
 			kvm_make_request(KVM_REQ_TRIPLE_FAULT, vcpu);
 		return;
 	}
+
+	WARN_ON_ONCE(vmx->emulation_required);
 
 	WARN_ON_ONCE(vmx->emulation_required);
 
@@ -3537,6 +3618,19 @@ static int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_IA32_ARCH_CAPABILITIES:
 		if (!msr_info->host_initiated &&
 		    !guest_cpuid_has(vcpu, X86_FEATURE_ARCH_CAPABILITIES))
+			return 1;
+		msr_info->data = to_vmx(vcpu)->arch_capabilities;
+		break;
+	case MSR_IA32_SPEC_CTRL:
+		if (!msr_info->host_initiated &&
+		    !guest_cpuid_has_spec_ctrl(vcpu))
+			return 1;
+
+		msr_info->data = to_vmx(vcpu)->spec_ctrl;
+		break;
+	case MSR_IA32_ARCH_CAPABILITIES:
+		if (!msr_info->host_initiated &&
+		    !guest_cpuid_has_arch_capabilities(vcpu))
 			return 1;
 		msr_info->data = to_vmx(vcpu)->arch_capabilities;
 		break;
@@ -5531,6 +5625,8 @@ static void nested_mark_vmcs12_pages_dirty(struct kvm_vcpu *vcpu)
 	}
 }
 
+	if (boot_cpu_has(X86_FEATURE_ARCH_CAPABILITIES))
+		rdmsrl(MSR_IA32_ARCH_CAPABILITIES, vmx->arch_capabilities);
 
 static void vmx_complete_nested_posted_interrupt(struct kvm_vcpu *vcpu)
 {
@@ -7574,6 +7670,12 @@ static int get_vmx_mem_address(struct kvm_vcpu *vcpu,
 						SS_VECTOR : GP_VECTOR,
 				      0);
 		return 1;
+	}
+
+	if (enable_pml) {
+		ASSERT(vmx->pml_pg);
+		vmcs_write64(PML_ADDRESS, page_to_phys(vmx->pml_pg));
+		vmcs_write16(GUEST_PML_INDEX, PML_ENTITY_NUM - 1);
 	}
 
 	return 0;
@@ -12569,6 +12671,12 @@ static int vmx_update_pi_irte(struct kvm *kvm, unsigned int host_irq,
 out:
 	srcu_read_unlock(&kvm->irq_srcu, idx);
 	return ret;
+
+emulation_error:
+	vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+	vcpu->run->internal.suberror = KVM_INTERNAL_ERROR_EMULATION;
+	vcpu->run->internal.ndata = 0;
+	return 0;
 }
 
 static void vmx_setup_mce(struct kvm_vcpu *vcpu)

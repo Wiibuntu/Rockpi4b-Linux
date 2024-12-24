@@ -1038,5 +1038,90 @@ int skcipher_register_instance(struct crypto_template *tmpl,
 }
 EXPORT_SYMBOL_GPL(skcipher_register_instance);
 
+int crypto_has_skcipher2(const char *alg_name, u32 type, u32 mask)
+{
+	return crypto_type_has_alg(alg_name, &crypto_skcipher_type2,
+				   type, mask);
+}
+EXPORT_SYMBOL_GPL(crypto_has_skcipher2);
+
+static int skcipher_prepare_alg(struct skcipher_alg *alg)
+{
+	struct crypto_alg *base = &alg->base;
+
+	if (alg->ivsize > PAGE_SIZE / 8 || alg->chunksize > PAGE_SIZE / 8)
+		return -EINVAL;
+
+	if (!alg->chunksize)
+		alg->chunksize = base->cra_blocksize;
+
+	base->cra_type = &crypto_skcipher_type2;
+	base->cra_flags &= ~CRYPTO_ALG_TYPE_MASK;
+	base->cra_flags |= CRYPTO_ALG_TYPE_SKCIPHER;
+
+	return 0;
+}
+
+int crypto_register_skcipher(struct skcipher_alg *alg)
+{
+	struct crypto_alg *base = &alg->base;
+	int err;
+
+	err = skcipher_prepare_alg(alg);
+	if (err)
+		return err;
+
+	return crypto_register_alg(base);
+}
+EXPORT_SYMBOL_GPL(crypto_register_skcipher);
+
+void crypto_unregister_skcipher(struct skcipher_alg *alg)
+{
+	crypto_unregister_alg(&alg->base);
+}
+EXPORT_SYMBOL_GPL(crypto_unregister_skcipher);
+
+int crypto_register_skciphers(struct skcipher_alg *algs, int count)
+{
+	int i, ret;
+
+	for (i = 0; i < count; i++) {
+		ret = crypto_register_skcipher(&algs[i]);
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+
+err:
+	for (--i; i >= 0; --i)
+		crypto_unregister_skcipher(&algs[i]);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(crypto_register_skciphers);
+
+void crypto_unregister_skciphers(struct skcipher_alg *algs, int count)
+{
+	int i;
+
+	for (i = count - 1; i >= 0; --i)
+		crypto_unregister_skcipher(&algs[i]);
+}
+EXPORT_SYMBOL_GPL(crypto_unregister_skciphers);
+
+int skcipher_register_instance(struct crypto_template *tmpl,
+			   struct skcipher_instance *inst)
+{
+	int err;
+
+	err = skcipher_prepare_alg(&inst->alg);
+	if (err)
+		return err;
+
+	return crypto_register_instance(tmpl, skcipher_crypto_instance(inst));
+}
+EXPORT_SYMBOL_GPL(skcipher_register_instance);
+
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Symmetric key cipher type");

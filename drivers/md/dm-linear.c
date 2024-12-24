@@ -26,7 +26,7 @@ struct linear_c {
 /*
  * Construct a linear mapping: <dev_path> <offset>
  */
-static int linear_ctr(struct dm_target *ti, unsigned int argc, char **argv)
+int dm_linear_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct linear_c *lc;
 	unsigned long long tmp;
@@ -69,14 +69,16 @@ static int linear_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	kfree(lc);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(dm_linear_ctr);
 
-static void linear_dtr(struct dm_target *ti)
+void dm_linear_dtr(struct dm_target *ti)
 {
 	struct linear_c *lc = (struct linear_c *) ti->private;
 
 	dm_put_device(ti, lc->dev);
 	kfree(lc);
 }
+EXPORT_SYMBOL_GPL(dm_linear_dtr);
 
 static sector_t linear_map_sector(struct dm_target *ti, sector_t bi_sector)
 {

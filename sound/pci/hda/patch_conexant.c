@@ -735,6 +735,17 @@ static void cxt_fixup_mute_led_gpio(struct hda_codec *codec,
 }
 
 
+static void cxt_fixup_hp_gate_mic_jack(struct hda_codec *codec,
+				       const struct hda_fixup *fix,
+				       int action)
+{
+	/* the mic pin (0x19) doesn't give an unsolicited event;
+	 * probe the mic pin together with the headphone pin (0x16)
+	 */
+	if (action == HDA_FIXUP_ACT_PROBE)
+		snd_hda_jack_set_gating_jack(codec, 0x19, 0x16);
+}
+
 /* ThinkPad X200 & co with cxt5051 */
 static const struct hda_pintbl cxt_pincfg_lenovo_x200[] = {
 	{ 0x16, 0x042140ff }, /* HP (seq# overridden) */
@@ -906,6 +917,26 @@ static const struct hda_fixup cxt_fixups[] = {
 		},
 		.chained = true,
 		.chain_id = CXT_FIXUP_HEADSET_MIC,
+	},
+	[CXT_FIXUP_HP_DOCK] = {
+		.type = HDA_FIXUP_PINS,
+		.v.pins = (const struct hda_pintbl[]) {
+			{ 0x16, 0x21011020 }, /* line-out */
+			{ 0x18, 0x2181103f }, /* line-in */
+			{ }
+		}
+	},
+	[CXT_FIXUP_HP_SPECTRE] = {
+		.type = HDA_FIXUP_PINS,
+		.v.pins = (const struct hda_pintbl[]) {
+			/* enable NID 0x1d for the speaker on top */
+			{ 0x1d, 0x91170111 },
+			{ }
+		}
+	},
+	[CXT_FIXUP_HP_GATE_MIC] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = cxt_fixup_hp_gate_mic_jack,
 	},
 };
 

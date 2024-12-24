@@ -615,6 +615,7 @@ int migrate_huge_page_move_mapping(struct address_space *mapping,
 
 	return MIGRATEPAGE_SUCCESS;
 }
+EXPORT_SYMBOL(migrate_page_move_mapping);
 
 /*
  * Gigantic pages are so large that we do not guarantee that page++ pointer
@@ -663,6 +664,7 @@ static void copy_huge_page(struct page *dst, struct page *src)
 		copy_highpage(dst + i, src + i);
 	}
 }
+EXPORT_SYMBOL(migrate_page_copy);
 
 /*
  * Copy the page to its new location
@@ -1149,6 +1151,7 @@ static ICE_noinline int unmap_and_move(new_page_t get_new_page,
 {
 	int rc = MIGRATEPAGE_SUCCESS;
 	struct page *newpage;
+	bool is_lru = !isolated_balloon_page(page);
 
 	if (!thp_migration_supported() && PageTransHuge(page))
 		return -ENOMEM;
@@ -1296,6 +1299,16 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
 		lock_page(hpage);
 	}
 
+	/*
+	 * Check for pages which are in the process of being freed.  Without
+	 * page_mapping() set, hugetlbfs specific move page routine will not
+	 * be called and we could leak usage counts for subpools.
+	 */
+	if (page_private(hpage) && !page_mapping(hpage)) {
+		rc = -EBUSY;
+		goto out_unlock;
+	}
+
 	if (PageAnon(hpage))
 		anon_vma = page_get_anon_vma(hpage);
 
@@ -1326,6 +1339,7 @@ put_anon:
 		put_new_page = NULL;
 	}
 
+out_unlock:
 	unlock_page(hpage);
 out:
 	if (rc != -EAGAIN)

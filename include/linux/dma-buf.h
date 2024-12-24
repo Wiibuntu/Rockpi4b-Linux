@@ -284,6 +284,7 @@ struct dma_buf {
 	size_t size;
 	struct file *file;
 	struct list_head attachments;
+	struct list_head release_callbacks;
 	const struct dma_buf_ops *ops;
 	struct mutex lock;
 	unsigned vmapping_counter;
@@ -375,6 +376,12 @@ static inline void get_dma_buf(struct dma_buf *dmabuf)
 {
 	get_file(dmabuf->file);
 }
+
+int dma_buf_set_release_callback(struct dma_buf *dmabuf,
+				 void (*callback)(void *), void *data);
+
+void *dma_buf_get_release_callback_data(struct dma_buf *dmabuf,
+					void (*callback)(void *));
 
 struct dma_buf_attachment *dma_buf_attach(struct dma_buf *dmabuf,
 							struct device *dev);

@@ -99,7 +99,7 @@ static irqreturn_t sunxi_ir_irq(int irqno, void *dev_id)
 	unsigned char dt;
 	unsigned int cnt, rc;
 	struct sunxi_ir *ir = dev_id;
-	DEFINE_IR_RAW_EVENT(rawir);
+	struct ir_raw_event rawir = {};
 
 	spin_lock(&ir->ir_lock);
 
@@ -150,6 +150,8 @@ static int sunxi_ir_probe(struct platform_device *pdev)
 	ir = devm_kzalloc(dev, sizeof(struct sunxi_ir), GFP_KERNEL);
 	if (!ir)
 		return -ENOMEM;
+
+	spin_lock_init(&ir->ir_lock);
 
 	spin_lock_init(&ir->ir_lock);
 

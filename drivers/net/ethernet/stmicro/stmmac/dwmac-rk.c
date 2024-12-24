@@ -1042,6 +1042,10 @@ static int rk_gmac_clk_init(struct plat_stmmacenet_data *plat)
 		}
 	}
 
+	bsp_priv->clk_mac_speed = devm_clk_get(dev, "clk_mac_speed");
+	if (IS_ERR(bsp_priv->clk_mac_speed))
+		dev_err(dev, "cannot get clock %s\n", "clk_mac_speed");
+
 	if (bsp_priv->clock_input) {
 		dev_info(dev, "clock input from PHY\n");
 	} else {
@@ -1051,6 +1055,16 @@ static int rk_gmac_clk_init(struct plat_stmmacenet_data *plat)
 
 	if (plat->phy_node && bsp_priv->integrated_phy) {
 		bsp_priv->clk_phy = of_clk_get(plat->phy_node, 0);
+		if (IS_ERR(bsp_priv->clk_phy)) {
+			ret = PTR_ERR(bsp_priv->clk_phy);
+			dev_err(dev, "Cannot get PHY clock: %d\n", ret);
+			return -EINVAL;
+		}
+		clk_set_rate(bsp_priv->clk_phy, 50000000);
+	}
+
+	if (bsp_priv->integrated_phy) {
+		bsp_priv->clk_phy = devm_clk_get(dev, "clk_macphy");
 		if (IS_ERR(bsp_priv->clk_phy)) {
 			ret = PTR_ERR(bsp_priv->clk_phy);
 			dev_err(dev, "Cannot get PHY clock: %d\n", ret);
@@ -1085,6 +1099,9 @@ static int gmac_clk_enable(struct rk_priv_data *bsp_priv, bool enable)
 			if (!IS_ERR(bsp_priv->clk_phy))
 				clk_prepare_enable(bsp_priv->clk_phy);
 
+			if (!IS_ERR(bsp_priv->clk_phy))
+				clk_prepare_enable(bsp_priv->clk_phy);
+
 			if (!IS_ERR(bsp_priv->aclk_mac))
 				clk_prepare_enable(bsp_priv->aclk_mac);
 
@@ -1093,6 +1110,9 @@ static int gmac_clk_enable(struct rk_priv_data *bsp_priv, bool enable)
 
 			if (!IS_ERR(bsp_priv->mac_clk_tx))
 				clk_prepare_enable(bsp_priv->mac_clk_tx);
+
+			if (!IS_ERR(bsp_priv->clk_mac_speed))
+				clk_prepare_enable(bsp_priv->clk_mac_speed);
 
 			/**
 			 * if (!IS_ERR(bsp_priv->clk_mac))

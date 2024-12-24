@@ -149,6 +149,24 @@ static int dp83867_config_port_mirroring(struct phy_device *phydev)
 	return 0;
 }
 
+static int dp83867_config_port_mirroring(struct phy_device *phydev)
+{
+	struct dp83867_private *dp83867 =
+		(struct dp83867_private *)phydev->priv;
+	u16 val;
+
+	val = phy_read_mmd_indirect(phydev, DP83867_CFG4, DP83867_DEVADDR);
+
+	if (dp83867->port_mirroring == DP83867_PORT_MIRROING_EN)
+		val |= DP83867_CFG4_PORT_MIRROR_EN;
+	else
+		val &= ~DP83867_CFG4_PORT_MIRROR_EN;
+
+	phy_write_mmd_indirect(phydev, DP83867_CFG4, DP83867_DEVADDR, val);
+
+	return 0;
+}
+
 #ifdef CONFIG_OF_MDIO
 static int dp83867_of_init(struct phy_device *phydev)
 {

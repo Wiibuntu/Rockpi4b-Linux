@@ -31,6 +31,7 @@
 
 /* Offsets for the DesignWare specific registers */
 #define DW_UART_USR	0x1f /* UART Status Register */
+#define DW_UART_RFL	0x21 /* UART Receive Fifo Level Register */
 #define DW_UART_CPR	0xf4 /* Component Parameter Register */
 #define DW_UART_UCV	0xf8 /* UART Component Version */
 
@@ -62,7 +63,11 @@ struct dw8250_data {
 	struct clk		*pclk;
 	struct reset_control	*rst;
 	struct uart_8250_dma	dma;
-
+#ifdef CONFIG_ARCH_ROCKCHIP
+	int			irq;
+	int			irq_wake;
+	int			enable_wakeup;
+#endif
 	unsigned int		skip_autocfg:1;
 	unsigned int		uart_16550_compatible:1;
 };
@@ -404,6 +409,9 @@ static void dw8250_setup_port(struct uart_port *p)
 		p->type = PORT_16550A;
 		p->flags |= UPF_FIXED_TYPE;
 		p->fifosize = DW_UART_CPR_FIFO_SIZE(reg);
+#ifdef CONFIG_ARCH_ROCKCHIP
+		up->tx_loadsz = p->fifosize * 3 / 4;
+#endif
 		up->capabilities = UART_CAP_FIFO;
 	}
 
@@ -460,6 +468,9 @@ static int dw8250_probe(struct platform_device *pdev)
 
 	data->dma.fn = dw8250_fallback_dma_filter;
 	data->usr_reg = DW_UART_USR;
+#ifdef CONFIG_ARCH_ROCKCHIP
+	data->irq	= irq;
+#endif
 	p->private_data = data;
 
 	data->uart_16550_compatible = device_property_read_bool(dev,
@@ -499,6 +510,13 @@ static int dw8250_probe(struct platform_device *pdev)
 		data->msr_mask_off |= UART_MSR_RI;
 		data->msr_mask_off |= UART_MSR_TERI;
 	}
+
+#ifdef CONFIG_ARCH_ROCKCHIP
+	if (device_property_read_bool(p->dev, "wakeup-source"))
+		data->enable_wakeup = 1;
+	else
+		data->enable_wakeup = 0;
+#endif
 
 	/* Always ask for fixed clock rate from a property. */
 	device_property_read_u32(dev, "clock-frequency", &p->uartclk);
@@ -567,6 +585,11 @@ static int dw8250_probe(struct platform_device *pdev)
 		goto err_reset;
 	}
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+	if (data->enable_wakeup)
+		device_init_wakeup(&pdev->dev, true);
+#endif
+
 	platform_set_drvdata(pdev, data);
 
 	pm_runtime_set_active(dev);
@@ -604,6 +627,11 @@ static int dw8250_remove(struct platform_device *pdev)
 	if (!IS_ERR(data->clk))
 		clk_disable_unprepare(data->clk);
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+	if (data->enable_wakeup)
+		device_init_wakeup(&pdev->dev, false);
+#endif
+
 	pm_runtime_disable(&pdev->dev);
 	pm_runtime_put_noidle(&pdev->dev);
 
@@ -615,6 +643,13 @@ static int dw8250_suspend(struct device *dev)
 {
 	struct dw8250_data *data = dev_get_drvdata(dev);
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+	if (device_may_wakeup(dev)) {
+		if (!enable_irq_wake(data->irq))
+			data->irq_wake = 1;
+		return 0;
+	}
+#endif
 	serial8250_suspend_port(data->line);
 
 	return 0;
@@ -624,6 +659,15 @@ static int dw8250_resume(struct device *dev)
 {
 	struct dw8250_data *data = dev_get_drvdata(dev);
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+	if (device_may_wakeup(dev)) {
+		if (data->irq_wake) {
+			disable_irq_wake(data->irq);
+			data->irq_wake = 0;
+		}
+		return 0;
+	}
+#endif
 	serial8250_resume_port(data->line);
 
 	return 0;

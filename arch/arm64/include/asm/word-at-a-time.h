@@ -18,6 +18,8 @@
 
 #include <linux/uaccess.h>
 
+#include <asm/uaccess.h>
+
 #ifndef __AARCH64EB__
 
 #include <linux/kernel.h>

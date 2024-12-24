@@ -214,7 +214,24 @@ static int cpufreq_init(struct cpufreq_policy *policy)
 	 *
 	 * OPPs might be populated at runtime, don't check for error here
 	 */
+#ifdef CONFIG_ARCH_ROCKCHIP
+	ret = dev_pm_opp_of_add_table(cpu_dev);
+	if (ret) {
+		dev_err(cpu_dev, "couldn't find opp table for cpu:%d, %d\n",
+			policy->cpu, ret);
+	} else {
+		cpumask_copy(&cpus, policy->cpus);
+		cpumask_clear_cpu(policy->cpu, &cpus);
+		if (!cpumask_empty(&cpus)) {
+			if (dev_pm_opp_of_cpumask_add_table(&cpus))
+				dev_pm_opp_of_remove_table(cpu_dev);
+		}
+	}
+	scale = rockchip_cpufreq_get_scale(policy->cpu);
+	rockchip_adjust_power_scale(cpu_dev, scale);
+#else
 	dev_pm_opp_of_cpumask_add_table(policy->cpus);
+#endif
 
 	/*
 	 * But we need OPP table to function so if it is not there let's
@@ -317,8 +334,23 @@ static void cpufreq_ready(struct cpufreq_policy *policy)
 	priv->cdev = of_cpufreq_cooling_register(policy);
 }
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+static int rockchip_cpufreq_suspend(struct cpufreq_policy *policy)
+{
+	struct private_data *priv = policy->driver_data;
+	int ret = 0;
+
+	ret = cpufreq_generic_suspend(policy);
+	if (!ret)
+		rockchip_monitor_suspend_low_temp_adjust(priv->mdev_info);
+
+	return ret;
+}
+#endif
+
 static struct cpufreq_driver dt_cpufreq_driver = {
-	.flags = CPUFREQ_STICKY | CPUFREQ_NEED_INITIAL_FREQ_CHECK,
+	.flags = CPUFREQ_STICKY | CPUFREQ_NEED_INITIAL_FREQ_CHECK |
+			 CPUFREQ_HAVE_GOVERNOR_PER_POLICY,
 	.verify = cpufreq_generic_frequency_table_verify,
 	.target_index = set_target,
 	.get = cpufreq_generic_get,

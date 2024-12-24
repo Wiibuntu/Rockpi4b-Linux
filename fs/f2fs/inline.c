@@ -1,11 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/inline.c
  * Copyright (c) 2013, Intel Corporation
  * Authors: Huajun Li <huajun.li@intel.com>
  *          Haicheng Li <haicheng.li@intel.com>
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/fs.h>
@@ -401,6 +399,9 @@ static int f2fs_move_inline_dirents(struct inode *dir, struct page *ipage,
 		f2fs_i_size_write(dir, PAGE_SIZE);
 out:
 	f2fs_put_page(page, 1);
+
+	f2fs_balance_fs(sbi, dn.node_changed);
+
 	return err;
 }
 
@@ -656,7 +657,7 @@ int f2fs_inline_data_fiemap(struct inode *inode,
 	struct page *ipage;
 	int err = 0;
 
-	ipage = get_node_page(F2FS_I_SB(inode), inode->i_ino);
+	ipage = f2fs_get_node_page(F2FS_I_SB(inode), inode->i_ino);
 	if (IS_ERR(ipage))
 		return PTR_ERR(ipage);
 

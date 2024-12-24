@@ -65,7 +65,7 @@ EXPORT_SYMBOL(memmove)
  */
 ENTRY(memset)
 	ltgr	%r4,%r4
-	bzr	%r14
+	jz	.Lmemset_exit
 	ltgr	%r3,%r3
 	jnz	.Lmemset_fill
 	aghi	%r4,-1
@@ -115,7 +115,7 @@ EXPORT_SYMBOL(memset)
  */
 ENTRY(memcpy)
 	ltgr	%r4,%r4
-	bzr	%r14
+	jz	.Lmemcpy_exit
 	aghi	%r4,-1
 	srlg	%r5,%r4,8
 	ltgr	%r5,%r5

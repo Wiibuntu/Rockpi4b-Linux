@@ -34,6 +34,8 @@
 
 #define ARCH_EFI_IRQ_FLAGS_MASK	X86_EFLAGS_IF
 
+#define MAX_CMDLINE_ADDRESS	UINT_MAX
+
 #ifdef CONFIG_X86_32
 
 extern asmlinkage unsigned long efi_call_phys(void *, ...);

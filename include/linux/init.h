@@ -12,6 +12,13 @@
 #define __noinitretpoline
 #endif
 
+/* Built-in __init functions needn't be compiled with retpoline */
+#if defined(RETPOLINE) && !defined(MODULE)
+#define __noretpoline __attribute__((indirect_branch("keep")))
+#else
+#define __noretpoline
+#endif
+
 /* These macros are used to mark some functions or 
  * initialized data (doesn't apply to uninitialized data)
  * as `initialization' functions. The kernel can take this
@@ -138,6 +145,10 @@ int __init init_rootfs(void);
 extern bool rodata_enabled;
 #endif
 #ifdef CONFIG_STRICT_KERNEL_RWX
+void mark_rodata_ro(void);
+#endif
+
+#ifdef CONFIG_DEBUG_RODATA
 void mark_rodata_ro(void);
 #endif
 

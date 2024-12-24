@@ -1,0 +1,37 @@
+--- Documentation/devicetree/bindings/display/rockchip/rockchip-vop.txt
++++ Documentation/devicetree/bindings/display/rockchip/rockchip-vop.txt
+@@ -6,7 +6,33 @@ buffer to an external LCD interface.
+ 
+ Required properties:
+ - compatible: value should be one of the following
+-		"rockchip,rk3288-vop";
++		"rockchip,rk3036-vop";
++		"rockchip,rk3066-vop";
++		"rockchip,rk3126-vop";
++		"rockchip,px30-vop-big";
++		"rockchip,px30-vop-lit";
++		"rockchip,rk3308-vop";
++		"rockchip,rk1808-vop-lit";
++		"rockchip,rk1808-vop-raw";
++		"rockchip,rk3288-vop-lit";
++		"rockchip,rk3288-vop-big";
++		"rockchip,rk3368-vop";
++		"rockchip,rk3366-vop";
++		"rockchip,rk3366-vop-lit";
++		"rockchip,rk3399-vop-big";
++		"rockchip,rk3399-vop-lit";
++		"rockchip,rk322x-vop";
++		"rockchip,rk3328-vop";
++
++- reg: Address and length of the register set for the device.
++- reg-names: The names of register regions. contain following regions:
++  - "regs" : (Required) Base address and size of the controllers.
++  - "cabc_lut" : (Optinal) cabc function lut table registers,
++                   take care of this register's length, driver would use
++                   register's length to decide cabc lut table size.
++  - "gamma_lut" : (Optinal) gamma function lut table registers,
++                   take care of this register's length, driver would use
++                   register's length to decide gamma table size.
+ 
+ - interrupts: should contain a list of all VOP IP block interrupts in the
+ 		 order: VSYNC, LCD_SYSTEM. The interrupt specifier

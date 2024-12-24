@@ -995,3 +995,8 @@
 &cpu {
 	cpu0-supply = <&dcdc2>;
 };
+
+&synctimer_32kclk {
+	assigned-clocks = <&mux_synctimer32k_ck>;
+	assigned-clock-parents = <&clkdiv32k_ick>;
+};

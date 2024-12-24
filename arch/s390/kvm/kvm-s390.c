@@ -504,6 +504,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_S390_BPB:
 		r = test_facility(82);
 		break;
+	case KVM_CAP_S390_BPB:
+		r = test_facility(82);
+		break;
 	default:
 		r = 0;
 	}
@@ -544,6 +547,9 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *memslot;
 	int is_dirty = 0;
+
+	if (kvm_is_ucontrol(kvm))
+		return -EINVAL;
 
 	if (kvm_is_ucontrol(kvm))
 		return -EINVAL;

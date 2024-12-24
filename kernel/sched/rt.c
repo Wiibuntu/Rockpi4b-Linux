@@ -897,6 +897,51 @@ static inline int rt_se_prio(struct sched_rt_entity *rt_se)
 	return rt_task_of(rt_se)->prio;
 }
 
+static void dump_throttled_rt_tasks(struct rt_rq *rt_rq)
+{
+	struct rt_prio_array *array = &rt_rq->active;
+	struct sched_rt_entity *rt_se;
+	char buf[500];
+	char *pos = buf;
+	char *end = buf + sizeof(buf);
+	int idx;
+
+	pos += snprintf(pos, sizeof(buf),
+		"sched: RT throttling activated for rt_rq %p (cpu %d)\n",
+		rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+
+	if (bitmap_empty(array->bitmap, MAX_RT_PRIO))
+		goto out;
+
+	pos += snprintf(pos, end - pos, "potential CPU hogs:\n");
+	idx = sched_find_first_bit(array->bitmap);
+	while (idx < MAX_RT_PRIO) {
+		list_for_each_entry(rt_se, array->queue + idx, run_list) {
+			struct task_struct *p;
+
+			if (!rt_entity_is_task(rt_se))
+				continue;
+
+			p = rt_task_of(rt_se);
+			if (pos < end)
+				pos += snprintf(pos, end - pos, "\t%s (%d)\n",
+					p->comm, p->pid);
+		}
+		idx = find_next_bit(array->bitmap, MAX_RT_PRIO, idx + 1);
+	}
+out:
+#ifdef CONFIG_PANIC_ON_RT_THROTTLING
+	/*
+	 * Use pr_err() in the BUG() case since printk_sched() will
+	 * not get flushed and deadlock is not a concern.
+	 */
+	pr_err("%s", buf);
+	BUG();
+#else
+	printk_deferred("%s", buf);
+#endif
+}
+
 static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 {
 	u64 runtime = sched_rt_runtime(rt_rq);
@@ -920,8 +965,14 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 		 * but accrue some time due to boosting.
 		 */
 		if (likely(rt_b->rt_runtime)) {
+			static bool once = false;
+
 			rt_rq->rt_throttled = 1;
-			printk_deferred_once("sched: RT throttling activated\n");
+
+			if (!once) {
+				once = true;
+				dump_throttled_rt_tasks(rt_rq);
+			}
 		} else {
 			/*
 			 * In case we did anyway, make it go away,
@@ -938,6 +989,70 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 	}
 
 	return 0;
+}
+
+#define RT_SCHEDTUNE_INTERVAL 50000000ULL
+
+static enum hrtimer_restart rt_schedtune_timer(struct hrtimer *timer)
+{
+	struct sched_rt_entity *rt_se = container_of(timer,
+			struct sched_rt_entity,
+			schedtune_timer);
+	struct task_struct *p = rt_task_of(rt_se);
+	struct rq *rq = task_rq(p);
+
+	raw_spin_lock(&rq->lock);
+
+	/*
+	 * Nothing to do if:
+	 * - task has switched runqueues
+	 * - task isn't RT anymore
+	 */
+	if (rq != task_rq(p) || (p->sched_class != &rt_sched_class))
+		goto out;
+
+	/*
+	 * If task got enqueued back during callback time, it means we raced
+	 * with the enqueue on another cpu, that's Ok, just do nothing as
+	 * enqueue path would have tried to cancel us and we shouldn't run
+	 * Also check the schedtune_enqueued flag as class-switch on a
+	 * sleeping task may have already canceled the timer and done dq
+	 */
+	if (p->on_rq || !rt_se->schedtune_enqueued)
+		goto out;
+
+	/*
+	 * RT task is no longer active, cancel boost
+	 */
+	rt_se->schedtune_enqueued = false;
+	schedtune_dequeue_task(p, cpu_of(rq));
+	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
+out:
+	raw_spin_unlock(&rq->lock);
+
+	/*
+	 * This can free the task_struct if no more references.
+	 */
+	put_task_struct(p);
+
+	return HRTIMER_NORESTART;
+}
+
+void init_rt_schedtune_timer(struct sched_rt_entity *rt_se)
+{
+	struct hrtimer *timer = &rt_se->schedtune_timer;
+
+	hrtimer_init(timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	timer->function = rt_schedtune_timer;
+	rt_se->schedtune_enqueued = false;
+}
+
+static void start_schedtune_timer(struct sched_rt_entity *rt_se)
+{
+	struct hrtimer *timer = &rt_se->schedtune_timer;
+
+	hrtimer_start(timer, ns_to_ktime(RT_SCHEDTUNE_INTERVAL),
+			HRTIMER_MODE_REL_PINNED);
 }
 
 /*
@@ -958,6 +1073,9 @@ static void update_curr_rt(struct rq *rq)
 	delta_exec = now - curr->se.exec_start;
 	if (unlikely((s64)delta_exec <= 0))
 		return;
+
+	/* Kick cpufreq (see the comment in kernel/sched/sched.h). */
+	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
 
 	schedstat_set(curr->se.statistics.exec_max,
 		      max(curr->se.statistics.exec_max, delta_exec));
@@ -1379,8 +1497,35 @@ static void yield_task_rt(struct rq *rq)
 #ifdef CONFIG_SMP
 static int find_lowest_rq(struct task_struct *task);
 
+/*
+ * Perform a schedtune dequeue and cancelation of boost timers if needed.
+ * Should be called only with the rq->lock held.
+ */
+static void schedtune_dequeue_rt(struct rq *rq, struct task_struct *p)
+{
+	struct sched_rt_entity *rt_se = &p->rt;
+
+	BUG_ON(!raw_spin_is_locked(&rq->lock));
+
+	if (!rt_se->schedtune_enqueued)
+		return;
+
+	/*
+	 * Incase of class change cancel any active timers. If an enqueued
+	 * timer was cancelled, put the task ref.
+	 */
+	if (hrtimer_try_to_cancel(&rt_se->schedtune_timer) == 1)
+		put_task_struct(p);
+
+	/* schedtune_enqueued is true, deboost it */
+	rt_se->schedtune_enqueued = false;
+	schedtune_dequeue_task(p, task_cpu(p));
+	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
+}
+
 static int
-select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags)
+select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags,
+		  int sibling_count_hint)
 {
 	struct task_struct *curr;
 	struct rq *rq;
@@ -1432,6 +1577,19 @@ select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags)
 	rcu_read_unlock();
 
 out:
+	/*
+	 * If previous CPU was different, make sure to cancel any active
+	 * schedtune timers and deboost.
+	 */
+	if (task_cpu(p) != cpu) {
+		unsigned long fl;
+		struct rq *prq = task_rq(p);
+
+		raw_spin_lock_irqsave(&prq->lock, fl);
+		schedtune_dequeue_rt(prq, p);
+		raw_spin_unlock_irqrestore(&prq->lock, fl);
+	}
+
 	return cpu;
 }
 
@@ -1848,7 +2006,9 @@ retry:
 	}
 
 	deactivate_task(rq, next_task, 0);
+	next_task->on_rq = TASK_ON_RQ_MIGRATING;
 	set_task_cpu(next_task, lowest_rq->cpu);
+	next_task->on_rq = TASK_ON_RQ_QUEUED;
 	activate_task(lowest_rq, next_task, 0);
 	ret = 1;
 
@@ -2061,6 +2221,11 @@ static void pull_rt_task(struct rq *this_rq)
 	    cpumask_test_cpu(this_rq->cpu, this_rq->rd->rto_mask))
 		return;
 
+	/* If we are the only overloaded CPU do nothing */
+	if (rt_overload_count == 1 &&
+	    cpumask_test_cpu(this_rq->cpu, this_rq->rd->rto_mask))
+		return;
+
 #ifdef HAVE_RT_PUSH_IPI
 	if (sched_feat(RT_PUSH_IPI)) {
 		tell_cpu_to_push(this_rq);
@@ -2120,7 +2285,9 @@ static void pull_rt_task(struct rq *this_rq)
 			resched = true;
 
 			deactivate_task(src_rq, p, 0);
+			p->on_rq = TASK_ON_RQ_MIGRATING;
 			set_task_cpu(p, this_cpu);
+			p->on_rq = TASK_ON_RQ_QUEUED;
 			activate_task(this_rq, p, 0);
 			/*
 			 * We continue with the search, just in
@@ -2180,6 +2347,13 @@ static void rq_offline_rt(struct rq *rq)
  */
 static void switched_from_rt(struct rq *rq, struct task_struct *p)
 {
+	/*
+	 * On class switch from rt, always cancel active schedtune timers,
+	 * this handles the cases where we switch class for a task that is
+	 * already rt-dequeued but has a running timer.
+	 */
+	schedtune_dequeue_rt(rq, p);
+
 	/*
 	 * If there are other RT tasks then we will reschedule
 	 * and the scheduling of the other RT tasks will handle

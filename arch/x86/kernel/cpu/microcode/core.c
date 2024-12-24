@@ -205,6 +205,7 @@ void __init load_ucode_bsp(void)
 
 static bool check_loader_disabled_ap(void)
 {
+	u32 a, b, c, d;
 #ifdef CONFIG_X86_32
 	return *((bool *)__pa_nodebug(&dis_ucode_ldr));
 #else

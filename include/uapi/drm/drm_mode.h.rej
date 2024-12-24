@@ -1,0 +1,83 @@
+--- include/uapi/drm/drm_mode.h
++++ include/uapi/drm/drm_mode.h
+@@ -73,7 +73,26 @@
+ #define  DRM_MODE_FLAG_3D_TOP_AND_BOTTOM	(7<<14)
+ #define  DRM_MODE_FLAG_3D_SIDE_BY_SIDE_HALF	(8<<14)
+ 
+-
++/* Picture aspect ratio options */
++#define DRM_MODE_PICTURE_ASPECT_NONE		0
++#define DRM_MODE_PICTURE_ASPECT_4_3		1
++#define DRM_MODE_PICTURE_ASPECT_16_9		2
++
++/* Aspect ratio flag bitmask (4 bits 22:19) */
++#define DRM_MODE_FLAG_PIC_AR_MASK		(0x0F<<19)
++#define  DRM_MODE_FLAG_PIC_AR_NONE \
++			(DRM_MODE_PICTURE_ASPECT_NONE<<19)
++#define  DRM_MODE_FLAG_PIC_AR_4_3 \
++			(DRM_MODE_PICTURE_ASPECT_4_3<<19)
++#define  DRM_MODE_FLAG_PIC_AR_16_9 \
++			(DRM_MODE_PICTURE_ASPECT_16_9<<19)
++
++/* Panel Mirror control */
++#define DRM_MODE_FLAG_XMIRROR			(1 << 28)
++#define DRM_MODE_FLAG_YMIRROR			(1 << 29)
++#define DRM_MODE_FLAG_XYMIRROR			(DRM_MODE_FLAG_XMIRROR | DRM_MODE_FLAG_YMIRROR)
++
++#define DRM_MODE_FLAG_PPIXDATA			(1<<31)
+ /* DPMS flags */
+ /* bit compatible with the xorg definitions. */
+ #define DRM_MODE_DPMS_ON	0
+@@ -93,11 +117,6 @@
+ #define DRM_MODE_SCALE_CENTER		2 /* Centered, no scaling */
+ #define DRM_MODE_SCALE_ASPECT		3 /* Full screen, preserve aspect */
+ 
+-/* Picture aspect ratio options */
+-#define DRM_MODE_PICTURE_ASPECT_NONE	0
+-#define DRM_MODE_PICTURE_ASPECT_4_3	1
+-#define DRM_MODE_PICTURE_ASPECT_16_9	2
+-
+ /* Dithering mode options */
+ #define DRM_MODE_DITHERING_OFF	0
+ #define DRM_MODE_DITHERING_ON	1
+@@ -212,6 +236,7 @@ struct drm_mode_get_plane_res {
+ #define DRM_MODE_ENCODER_VIRTUAL 5
+ #define DRM_MODE_ENCODER_DSI	6
+ #define DRM_MODE_ENCODER_DPMST	7
++#define DRM_MODE_ENCODER_DPI	8
+ 
+ struct drm_mode_get_encoder {
+ 	__u32 encoder_id;
+@@ -225,14 +250,16 @@ struct drm_mode_get_encoder {
+ 
+ /* This is for connectors with multiple signal types. */
+ /* Try to match DRM_MODE_CONNECTOR_X as closely as possible. */
+-#define DRM_MODE_SUBCONNECTOR_Automatic	0
+-#define DRM_MODE_SUBCONNECTOR_Unknown	0
+-#define DRM_MODE_SUBCONNECTOR_DVID	3
+-#define DRM_MODE_SUBCONNECTOR_DVIA	4
+-#define DRM_MODE_SUBCONNECTOR_Composite	5
+-#define DRM_MODE_SUBCONNECTOR_SVIDEO	6
+-#define DRM_MODE_SUBCONNECTOR_Component	8
+-#define DRM_MODE_SUBCONNECTOR_SCART	9
++enum drm_mode_subconnector {
++	DRM_MODE_SUBCONNECTOR_Automatic = 0,
++	DRM_MODE_SUBCONNECTOR_Unknown = 0,
++	DRM_MODE_SUBCONNECTOR_DVID = 3,
++	DRM_MODE_SUBCONNECTOR_DVIA = 4,
++	DRM_MODE_SUBCONNECTOR_Composite = 5,
++	DRM_MODE_SUBCONNECTOR_SVIDEO = 6,
++	DRM_MODE_SUBCONNECTOR_Component = 8,
++	DRM_MODE_SUBCONNECTOR_SCART = 9,
++};
+ 
+ #define DRM_MODE_CONNECTOR_Unknown	0
+ #define DRM_MODE_CONNECTOR_VGA		1
+@@ -251,6 +278,7 @@ struct drm_mode_get_encoder {
+ #define DRM_MODE_CONNECTOR_eDP		14
+ #define DRM_MODE_CONNECTOR_VIRTUAL      15
+ #define DRM_MODE_CONNECTOR_DSI		16
++#define DRM_MODE_CONNECTOR_DPI		17
+ 
+ struct drm_mode_get_connector {
+ 

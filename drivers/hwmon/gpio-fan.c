@@ -26,6 +26,8 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/platform_device.h>
+#include <linux/devfreq.h>
+#include <linux/devfreq_cooling.h>
 #include <linux/err.h>
 #include <linux/mutex.h>
 #include <linux/hwmon.h>
@@ -56,6 +58,8 @@ struct gpio_fan_data {
 	bool			pwm_enable;
 	struct gpio_desc	*alarm_gpio;
 	struct work_struct	alarm_work;
+	struct devfreq *devfreq;
+	struct thermal_cooling_device *devfreq_cooling;
 };
 
 /*

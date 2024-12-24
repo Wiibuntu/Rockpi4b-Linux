@@ -1,0 +1,13 @@
+--- arch/arm/boot/dts/rk3288-rock2-square.dts
++++ arch/arm/boot/dts/rk3288-rock2-square.dts
+@@ -125,10 +124,6 @@
+ 	};
+ };
+ 
+-&i2c5 {
+-	status = "okay";
+-};
+-
+ &pinctrl {
+ 	pmic {
+ 		pmic_int: pmic-int {

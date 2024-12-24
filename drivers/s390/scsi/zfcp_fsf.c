@@ -1543,6 +1543,8 @@ int zfcp_fsf_close_port(struct zfcp_erp_action *erp_action)
 	}
 out:
 	spin_unlock_irq(&qdio->req_q_lock);
+	if (!retval)
+		zfcp_dbf_rec_run_wka("fsowp_1", wka_port, req->req_id);
 	return retval;
 }
 
@@ -1762,6 +1764,8 @@ int zfcp_fsf_close_physical_port(struct zfcp_erp_action *erp_action)
 	}
 out:
 	spin_unlock_irq(&qdio->req_q_lock);
+	if (!retval)
+		zfcp_dbf_rec_run_wka("fscwp_1", wka_port, req->req_id);
 	return retval;
 }
 

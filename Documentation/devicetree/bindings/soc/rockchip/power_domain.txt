@@ -118,3 +118,15 @@ Example of the node using power domain:
 		power-domains = <&power RK3399_PD_VOPB>;
 		/* ... */
 	};
+
+	node {
+                /* ... */
+                power-domains = <&power RK3368_PD_GPU_1>;
+                /* ... */
+        };
+
+	node {
+		/* ... */
+		power-domains = <&power RK3399_PD_VOPB>;
+		/* ... */
+	};

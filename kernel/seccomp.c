@@ -533,6 +533,12 @@ static void seccomp_init_siginfo(siginfo_t *info, int syscall, int reason)
 	info->si_syscall = syscall;
 }
 
+/* put_seccomp_filter - decrements the ref count of tsk->seccomp.filter */
+void put_seccomp_filter(struct task_struct *tsk)
+{
+	__put_seccomp_filter(tsk->seccomp.filter);
+}
+
 /**
  * seccomp_send_sigsys - signals the task to allow in-process syscall emulation
  * @syscall: syscall number to send to userland

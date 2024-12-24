@@ -201,6 +201,20 @@ static efi_status_t update_fdt_memmap(void *fdt, struct efi_boot_memmap *map)
 	if (err)
 		return EFI_LOAD_ERROR;
 
+	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE)) {
+		efi_status_t efi_status;
+
+		efi_status = efi_get_random_bytes(sys_table, sizeof(fdt_val64),
+						  (u8 *)&fdt_val64);
+		if (efi_status == EFI_SUCCESS) {
+			status = fdt_setprop(fdt, node, "kaslr-seed",
+					     &fdt_val64, sizeof(fdt_val64));
+			if (status)
+				goto fdt_set_fail;
+		} else if (efi_status != EFI_NOT_FOUND) {
+			return efi_status;
+		}
+	}
 	return EFI_SUCCESS;
 }
 

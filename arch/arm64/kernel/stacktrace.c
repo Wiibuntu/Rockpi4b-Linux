@@ -130,6 +130,9 @@ void save_stack_trace_regs(struct pt_regs *regs, struct stack_trace *trace)
 	struct stack_trace_data data;
 	struct stackframe frame;
 
+	if (!try_get_task_stack(tsk))
+		return;
+
 	data.trace = trace;
 	data.skip = trace->skip;
 	data.no_sched_functions = 0;

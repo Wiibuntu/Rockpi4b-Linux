@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/file.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
@@ -178,7 +175,7 @@ static bool need_inode_page_update(struct f2fs_sb_info *sbi, nid_t ino)
 	struct page *i = find_get_page(NODE_MAPPING(sbi), ino);
 	bool ret = false;
 	/* But we need to avoid that there are some inode updates */
-	if ((i && PageDirty(i)) || need_inode_block_update(sbi, ino))
+	if ((i && PageDirty(i)) || f2fs_need_inode_block_update(sbi, ino))
 		ret = true;
 	f2fs_put_page(i, 0);
 	return ret;
@@ -1498,6 +1495,9 @@ static long f2fs_fallocate(struct file *file, int mode,
 	if (unlikely(f2fs_cp_error(F2FS_I_SB(inode))))
 		return -EIO;
 
+	if (unlikely(f2fs_cp_error(F2FS_I_SB(inode))))
+		return -EIO;
+
 	/* f2fs only support ->fallocate for regular file */
 	if (!S_ISREG(inode->i_mode))
 		return -EINVAL;
@@ -1880,6 +1880,29 @@ static int f2fs_ioc_shutdown(struct file *filp, unsigned long arg)
 	case F2FS_GOING_DOWN_METAFLUSH:
 		sync_meta_pages(sbi, META, LONG_MAX, FS_META_IO);
 		f2fs_stop_checkpoint(sbi, false);
+		break;
+	case F2FS_IOC32_GETVERSION:
+		cmd = F2FS_IOC_GETVERSION;
+		break;
+	case F2FS_IOC_START_ATOMIC_WRITE:
+	case F2FS_IOC_COMMIT_ATOMIC_WRITE:
+	case F2FS_IOC_START_VOLATILE_WRITE:
+	case F2FS_IOC_RELEASE_VOLATILE_WRITE:
+	case F2FS_IOC_ABORT_VOLATILE_WRITE:
+	case F2FS_IOC_SHUTDOWN:
+	case F2FS_IOC_SET_ENCRYPTION_POLICY:
+	case F2FS_IOC_GET_ENCRYPTION_PWSALT:
+	case F2FS_IOC_GET_ENCRYPTION_POLICY:
+	case F2FS_IOC_GARBAGE_COLLECT:
+	case F2FS_IOC_GARBAGE_COLLECT_RANGE:
+	case F2FS_IOC_WRITE_CHECKPOINT:
+	case F2FS_IOC_DEFRAGMENT:
+	case F2FS_IOC_MOVE_RANGE:
+	case F2FS_IOC_FLUSH_DEVICE:
+	case F2FS_IOC_GET_FEATURES:
+	case F2FS_IOC_GET_PIN_FILE:
+	case F2FS_IOC_SET_PIN_FILE:
+	case F2FS_IOC_PRECACHE_EXTENTS:
 		break;
 	default:
 		ret = -EINVAL;

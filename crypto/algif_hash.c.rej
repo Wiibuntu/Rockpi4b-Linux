@@ -1,0 +1,81 @@
+--- crypto/algif_hash.c
++++ crypto/algif_hash.c
+@@ -54,7 +59,8 @@ static int hash_sendmsg(struct socket *sock, struct msghdr *msg,
+ 
+ 	lock_sock(sk);
+ 	if (!ctx->more) {
+-		err = crypto_ahash_init(&ctx->req);
++		err = af_alg_wait_for_completion(crypto_ahash_init(&ctx->req),
++						&ctx->completion);
+ 		if (err)
+ 			goto unlock;
+ 	}
+@@ -125,6 +131,7 @@ static ssize_t hash_sendpage(struct socket *sock, struct page *page,
+ 	} else {
+ 		if (!ctx->more) {
+ 			err = crypto_ahash_init(&ctx->req);
++			err = af_alg_wait_for_completion(err, &ctx->completion);
+ 			if (err)
+ 				goto unlock;
+ 		}
+@@ -182,7 +189,7 @@ static int hash_accept(struct socket *sock, struct socket *newsock, int flags)
+ 	struct alg_sock *ask = alg_sk(sk);
+ 	struct hash_ctx *ctx = ask->private;
+ 	struct ahash_request *req = &ctx->req;
+-	char state[crypto_ahash_statesize(crypto_ahash_reqtfm(req))];
++	char state[crypto_ahash_statesize(crypto_ahash_reqtfm(req)) ? : 1];
+ 	struct sock *sk2;
+ 	struct alg_sock *ask2;
+ 	struct hash_ctx *ctx2;
+@@ -398,12 +537,14 @@ static void hash_sock_destruct(struct sock *sk)
+ 	af_alg_release_parent(sk);
+ }
+ 
+-static int hash_accept_parent(void *private, struct sock *sk)
++static int hash_accept_parent_nokey(void *private, struct sock *sk)
+ {
+ 	struct hash_ctx *ctx;
+ 	struct alg_sock *ask = alg_sk(sk);
+-	unsigned len = sizeof(*ctx) + crypto_ahash_reqsize(private);
+-	unsigned ds = crypto_ahash_digestsize(private);
++	struct algif_hash_tfm *tfm = private;
++	struct crypto_ahash *hash = tfm->hash;
++	unsigned len = sizeof(*ctx) + crypto_ahash_reqsize(hash);
++	unsigned ds = crypto_ahash_digestsize(hash);
+ 
+ 	ctx = sock_kmalloc(sk, len, GFP_KERNEL);
+ 	if (!ctx)
+@@ -423,7 +564,7 @@ static int hash_accept_parent(void *private, struct sock *sk)
+ 
+ 	ask->private = ctx;
+ 
+-	ahash_request_set_tfm(&ctx->req, private);
++	ahash_request_set_tfm(&ctx->req, hash);
+ 	ahash_request_set_callback(&ctx->req, CRYPTO_TFM_REQ_MAY_BACKLOG,
+ 				   af_alg_complete, &ctx->completion);
+ 
+@@ -432,12 +573,24 @@ static int hash_accept_parent(void *private, struct sock *sk)
+ 	return 0;
+ }
+ 
++static int hash_accept_parent(void *private, struct sock *sk)
++{
++	struct algif_hash_tfm *tfm = private;
++
++	if (!tfm->has_key && crypto_ahash_has_setkey(tfm->hash))
++		return -ENOKEY;
++
++	return hash_accept_parent_nokey(private, sk);
++}
++
+ static const struct af_alg_type algif_type_hash = {
+ 	.bind		=	hash_bind,
+ 	.release	=	hash_release,
+ 	.setkey		=	hash_setkey,
+ 	.accept		=	hash_accept_parent,
++	.accept_nokey	=	hash_accept_parent_nokey,
+ 	.ops		=	&algif_hash_ops,
++	.ops_nokey	=	&algif_hash_ops_nokey,
+ 	.name		=	"hash",
+ 	.owner		=	THIS_MODULE
+ };

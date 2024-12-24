@@ -1,0 +1,24 @@
+--- fs/squashfs/xz_wrapper.c
++++ fs/squashfs/xz_wrapper.c
+@@ -157,12 +158,20 @@ static int squashfs_xz_uncompress(struct squashfs_sb_info *msblk, void *strm,
+ 
+ 		if (stream->buf.out_pos == stream->buf.out_size) {
+ 			stream->buf.out = squashfs_next_page(output);
+-			if (stream->buf.out != NULL) {
++			if (!IS_ERR(stream->buf.out)) {
+ 				stream->buf.out_pos = 0;
+ 				total += PAGE_CACHE_SIZE;
+ 			}
+ 		}
+ 
++		if (!stream->buf.out) {
++			if (!buf) {
++				buf = kmalloc(PAGE_CACHE_SIZE, GFP_ATOMIC);
++				if (!buf)
++					goto out;
++			}
++			stream->buf.out = buf;
++		}
+ 		xz_err = xz_dec_run(stream->state, &stream->buf);
+ 
+ 		if (stream->buf.in_pos == stream->buf.in_size && k < b)

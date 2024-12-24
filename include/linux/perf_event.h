@@ -409,7 +409,7 @@ struct pmu {
 	/*
 	 * Set up pmu-private data structures for an AUX area
 	 */
-	void *(*setup_aux)		(int cpu, void **pages,
+	void *(*setup_aux)		(struct perf_event *event, void **pages,
 					 int nr_pages, bool overwrite);
 					/* optional */
 
@@ -447,6 +447,14 @@ struct pmu {
 	 * Filter events for PMU-specific reasons.
 	 */
 	int (*filter_match)		(struct perf_event *event); /* optional */
+
+	/*
+	 * Initial, PMU driver specific configuration.
+	 */
+	int (*get_drv_configs)		(struct perf_event *event,
+					 void __user *arg); /* optional */
+	void (*free_drv_configs)	(struct perf_event *event);
+					/* optional */
 };
 
 enum perf_addr_filter_action_t {
@@ -661,6 +669,7 @@ struct perf_event {
 	struct irq_work			pending;
 
 	atomic_t			event_limit;
+	struct list_head		drv_configs;
 
 	/* address range filters */
 	struct perf_addr_filters_head	addr_filters;
@@ -1168,6 +1177,11 @@ extern int perf_cpu_time_max_percent_handler(struct ctl_table *table, int write,
 
 int perf_event_max_stack_handler(struct ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp, loff_t *ppos);
+
+static inline bool perf_paranoid_any(void)
+{
+	return sysctl_perf_event_paranoid > 2;
+}
 
 static inline bool perf_paranoid_tracepoint_raw(void)
 {

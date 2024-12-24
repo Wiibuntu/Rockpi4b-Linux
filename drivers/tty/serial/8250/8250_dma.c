@@ -11,6 +11,12 @@
 
 #include "8250.h"
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+#define MAX_TX_BYTES		64
+#define MAX_FIFO_SIZE		64
+#define UART_RFL_16550A		0x21
+#endif
+
 static void __dma_tx_complete(void *param)
 {
 	struct uart_8250_port	*p = param;
@@ -36,11 +42,47 @@ static void __dma_tx_complete(void *param)
 	ret = serial8250_tx_dma(p);
 	if (ret) {
 		p->ier |= UART_IER_THRI;
+#ifdef CONFIG_ARCH_ROCKCHIP
+		p->ier |= UART_IER_PTIME;
+#endif
 		serial_port_out(&p->port, UART_IER, p->ier);
 	}
 
 	spin_unlock_irqrestore(&p->port.lock, flags);
 }
+
+#ifdef CONFIG_ARCH_ROCKCHIP
+
+static void __dma_rx_complete(void *param)
+{
+	struct uart_8250_port	*p = param;
+	struct uart_8250_dma	*dma = p->dma;
+	struct tty_port		*tty_port = &p->port.state->port;
+	struct dma_tx_state	state;
+	unsigned int		count = 0, cur_index = 0;
+
+	dmaengine_tx_status(dma->rxchan, dma->rx_cookie, &state);
+	cur_index = dma->rx_size - state.residue;
+
+	if (cur_index == dma->rx_index)
+		return;
+	else if (cur_index > dma->rx_index)
+		count = cur_index - dma->rx_index;
+	else
+		count = dma->rx_size - dma->rx_index;
+
+	tty_insert_flip_string(tty_port, dma->rx_buf + dma->rx_index, count);
+
+	if (cur_index < dma->rx_index) {
+		tty_insert_flip_string(tty_port, dma->rx_buf, cur_index);
+		count += cur_index;
+	}
+
+	p->port.icount.rx += count;
+	dma->rx_index = cur_index;
+}
+
+#else
 
 static void __dma_rx_complete(void *param)
 {
@@ -102,6 +144,9 @@ int serial8250_tx_dma(struct uart_8250_port *p)
 		dma->tx_err = 0;
 		if (p->ier & UART_IER_THRI) {
 			p->ier &= ~UART_IER_THRI;
+#ifdef CONFIG_ARCH_ROCKCHIP
+			p->ier &= ~UART_IER_PTIME;
+#endif
 			serial_out(p, UART_IER, p->ier);
 		}
 	}
@@ -147,6 +192,8 @@ void serial8250_rx_dma_flush(struct uart_8250_port *p)
 	}
 }
 EXPORT_SYMBOL_GPL(serial8250_rx_dma_flush);
+
+#endif
 
 int serial8250_request_dma(struct uart_8250_port *p)
 {

@@ -634,6 +634,8 @@ static int __test_aead(struct crypto_aead *tfm, int enc,
 
 	iv_len = crypto_aead_ivsize(tfm);
 
+	iv_len = crypto_aead_ivsize(tfm);
+
 	for (i = 0, j = 0; i < tcount; i++) {
 		if (template[i].np)
 			continue;
@@ -3345,6 +3347,21 @@ static const struct alg_test_desc alg_test_descs[] = {
 			}
 		}
 	}, {
+		.alg = "heh(aes)",
+		.test = alg_test_skcipher,
+		.suite = {
+			.cipher = {
+				.enc = {
+					.vecs = aes_heh_enc_tv_template,
+					.count = AES_HEH_ENC_TEST_VECTORS
+				},
+				.dec = {
+					.vecs = aes_heh_dec_tv_template,
+					.count = AES_HEH_DEC_TEST_VECTORS
+				}
+			}
+		}
+	}, {
 		.alg = "rfc4106(gcm(aes))",
 		.test = alg_test_aead,
 		.fips_allowed = 1,
@@ -3619,6 +3636,22 @@ static const struct alg_test_desc alg_test_descs[] = {
 			.comp = {
 				.comp = __VECS(zlib_deflate_comp_tv_template),
 				.decomp = __VECS(zlib_deflate_decomp_tv_template)
+			}
+		}
+	}, {
+		.alg = "zstd",
+		.test = alg_test_comp,
+		.fips_allowed = 1,
+		.suite = {
+			.comp = {
+				.comp = {
+					.vecs = zstd_comp_tv_template,
+					.count = ZSTD_COMP_TEST_VECTORS
+				},
+				.decomp = {
+					.vecs = zstd_decomp_tv_template,
+					.count = ZSTD_DECOMP_TEST_VECTORS
+				}
 			}
 		}
 	}

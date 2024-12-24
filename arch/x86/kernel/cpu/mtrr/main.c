@@ -767,6 +767,9 @@ void __init mtrr_bp_init(void)
 			if (mtrr_enabled())
 				mtrr_bp_pat_init();
 
+			if (mtrr_enabled())
+				mtrr_bp_pat_init();
+
 			if (mtrr_cleanup(phys_addr)) {
 				changed_by_mtrr_cleanup = 1;
 				mtrr_if->set_all();

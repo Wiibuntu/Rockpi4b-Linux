@@ -1,0 +1,12 @@
+--- fs/f2fs/hash.c
++++ fs/f2fs/hash.c
+@@ -67,7 +64,8 @@ static void str2hashbuf(const unsigned char *msg, size_t len,
+ 		*buf++ = pad;
+ }
+ 
+-f2fs_hash_t f2fs_dentry_hash(const struct qstr *name_info)
++f2fs_hash_t f2fs_dentry_hash(const struct qstr *name_info,
++				struct fscrypt_name *fname)
+ {
+ 	__u32 hash;
+ 	f2fs_hash_t f2fs_hash;

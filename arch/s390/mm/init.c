@@ -124,6 +124,13 @@ void mark_rodata_ro(void)
 	pr_info("Write protected read-only-after-init data: %luk\n", size >> 10);
 }
 
+void mark_rodata_ro(void)
+{
+	/* Text and rodata are already protected. Nothing to do here. */
+	pr_info("Write protecting the kernel read-only data: %luk\n",
+		((unsigned long)&_eshared - (unsigned long)&_stext) >> 10);
+}
+
 void __init mem_init(void)
 {
 	cpumask_set_cpu(0, &init_mm.context.cpu_attach_mask);

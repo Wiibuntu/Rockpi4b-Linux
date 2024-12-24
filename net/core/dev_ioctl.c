@@ -176,6 +176,7 @@ static int net_hwtstamp_validate(struct ifreq *ifr)
 
 	if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
 		return -EFAULT;
+	ifr.ifr_name[IFNAMSIZ-1] = 0;
 
 	if (cfg.flags) /* reserved for future extensions */
 		return -EINVAL;

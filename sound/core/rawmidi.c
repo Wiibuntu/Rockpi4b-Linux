@@ -29,6 +29,7 @@
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/delay.h>
+#include <linux/nospec.h>
 #include <sound/rawmidi.h>
 #include <sound/info.h>
 #include <sound/control.h>
@@ -612,6 +613,16 @@ int snd_rawmidi_info_select(struct snd_card *card, struct snd_rawmidi_info *info
 	mutex_unlock(&register_mutex);
 	return ret;
 }
+
+int snd_rawmidi_info_select(struct snd_card *card, struct snd_rawmidi_info *info)
+{
+	int ret;
+
+	mutex_lock(&register_mutex);
+	ret = __snd_rawmidi_info_select(card, info);
+	mutex_unlock(&register_mutex);
+	return ret;
+}
 EXPORT_SYMBOL(snd_rawmidi_info_select);
 
 static int snd_rawmidi_info_select_user(struct snd_card *card,
@@ -635,7 +646,7 @@ static int snd_rawmidi_info_select_user(struct snd_card *card,
 int snd_rawmidi_output_params(struct snd_rawmidi_substream *substream,
 			      struct snd_rawmidi_params * params)
 {
-	char *newbuf;
+	char *newbuf, *oldbuf;
 	struct snd_rawmidi_runtime *runtime = substream->runtime;
 	
 	if (substream->append && substream->use_count > 1)
@@ -648,13 +659,17 @@ int snd_rawmidi_output_params(struct snd_rawmidi_substream *substream,
 		return -EINVAL;
 	}
 	if (params->buffer_size != runtime->buffer_size) {
-		newbuf = krealloc(runtime->buffer, params->buffer_size,
-				  GFP_KERNEL);
+		newbuf = kmalloc(params->buffer_size, GFP_KERNEL);
 		if (!newbuf)
 			return -ENOMEM;
+		spin_lock_irq(&runtime->lock);
+		oldbuf = runtime->buffer;
 		runtime->buffer = newbuf;
 		runtime->buffer_size = params->buffer_size;
 		runtime->avail = runtime->buffer_size;
+		runtime->appl_ptr = runtime->hw_ptr = 0;
+		spin_unlock_irq(&runtime->lock);
+		kfree(oldbuf);
 	}
 	runtime->avail_min = params->avail_min;
 	substream->active_sensing = !params->no_active_sensing;
@@ -665,7 +680,7 @@ EXPORT_SYMBOL(snd_rawmidi_output_params);
 int snd_rawmidi_input_params(struct snd_rawmidi_substream *substream,
 			     struct snd_rawmidi_params * params)
 {
-	char *newbuf;
+	char *newbuf, *oldbuf;
 	struct snd_rawmidi_runtime *runtime = substream->runtime;
 
 	snd_rawmidi_drain_input(substream);
@@ -676,12 +691,16 @@ int snd_rawmidi_input_params(struct snd_rawmidi_substream *substream,
 		return -EINVAL;
 	}
 	if (params->buffer_size != runtime->buffer_size) {
-		newbuf = krealloc(runtime->buffer, params->buffer_size,
-				  GFP_KERNEL);
+		newbuf = kmalloc(params->buffer_size, GFP_KERNEL);
 		if (!newbuf)
 			return -ENOMEM;
+		spin_lock_irq(&runtime->lock);
+		oldbuf = runtime->buffer;
 		runtime->buffer = newbuf;
 		runtime->buffer_size = params->buffer_size;
+		runtime->appl_ptr = runtime->hw_ptr = 0;
+		spin_unlock_irq(&runtime->lock);
+		kfree(oldbuf);
 	}
 	runtime->avail_min = params->avail_min;
 	return 0;

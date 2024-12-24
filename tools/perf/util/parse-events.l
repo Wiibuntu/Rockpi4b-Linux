@@ -102,6 +102,16 @@ static int drv_str(yyscan_t scanner, int token)
 	return token;
 }
 
+static int drv_str(yyscan_t scanner, int token)
+{
+	YYSTYPE *yylval = parse_events_get_lval(scanner);
+	char *text = parse_events_get_text(scanner);
+
+	/* Strip off the '@' */
+	yylval->str = strdup(text + 1);
+	return token;
+}
+
 #define REWIND(__alloc)				\
 do {								\
 	YYSTYPE *__yylval = parse_events_get_lval(yyscanner);	\

@@ -7,6 +7,7 @@ obj-$(CONFIG_VIDEO_ET8EK8)	+= et8ek8/
 obj-$(CONFIG_VIDEO_CX25840) += cx25840/
 obj-$(CONFIG_VIDEO_M5MOLS)	+= m5mols/
 obj-y				+= soc_camera/
+obj-$(CONFIG_VIDEO_NVP6324)	+= jaguar1_drv/
 
 obj-$(CONFIG_VIDEO_APTINA_PLL) += aptina-pll.o
 obj-$(CONFIG_VIDEO_TVAUDIO) += tvaudio.o
@@ -27,6 +28,7 @@ obj-$(CONFIG_VIDEO_DW9714)  += dw9714.o
 obj-$(CONFIG_VIDEO_ADV7170) += adv7170.o
 obj-$(CONFIG_VIDEO_ADV7175) += adv7175.o
 obj-$(CONFIG_VIDEO_ADV7180) += adv7180.o
+obj-$(CONFIG_VIDEO_ADV7181D) += adv7181.o
 obj-$(CONFIG_VIDEO_ADV7183) += adv7183.o
 obj-$(CONFIG_VIDEO_ADV7343) += adv7343.o
 obj-$(CONFIG_VIDEO_ADV7393) += adv7393.o

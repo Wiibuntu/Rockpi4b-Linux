@@ -128,6 +128,44 @@ static const char *const nlk_cb_mutex_key_strings[MAX_LINKS + 1] = {
 	"nlk_cb_mutex-MAX_LINKS"
 };
 
+static struct lock_class_key nlk_cb_mutex_keys[MAX_LINKS];
+
+static const char *const nlk_cb_mutex_key_strings[MAX_LINKS + 1] = {
+	"nlk_cb_mutex-ROUTE",
+	"nlk_cb_mutex-1",
+	"nlk_cb_mutex-USERSOCK",
+	"nlk_cb_mutex-FIREWALL",
+	"nlk_cb_mutex-SOCK_DIAG",
+	"nlk_cb_mutex-NFLOG",
+	"nlk_cb_mutex-XFRM",
+	"nlk_cb_mutex-SELINUX",
+	"nlk_cb_mutex-ISCSI",
+	"nlk_cb_mutex-AUDIT",
+	"nlk_cb_mutex-FIB_LOOKUP",
+	"nlk_cb_mutex-CONNECTOR",
+	"nlk_cb_mutex-NETFILTER",
+	"nlk_cb_mutex-IP6_FW",
+	"nlk_cb_mutex-DNRTMSG",
+	"nlk_cb_mutex-KOBJECT_UEVENT",
+	"nlk_cb_mutex-GENERIC",
+	"nlk_cb_mutex-17",
+	"nlk_cb_mutex-SCSITRANSPORT",
+	"nlk_cb_mutex-ECRYPTFS",
+	"nlk_cb_mutex-RDMA",
+	"nlk_cb_mutex-CRYPTO",
+	"nlk_cb_mutex-SMC",
+	"nlk_cb_mutex-23",
+	"nlk_cb_mutex-24",
+	"nlk_cb_mutex-25",
+	"nlk_cb_mutex-26",
+	"nlk_cb_mutex-27",
+	"nlk_cb_mutex-28",
+	"nlk_cb_mutex-29",
+	"nlk_cb_mutex-30",
+	"nlk_cb_mutex-31",
+	"nlk_cb_mutex-MAX_LINKS"
+};
+
 static int netlink_dump(struct sock *sk);
 
 /* nl_table locking explained:
@@ -419,6 +457,14 @@ static void netlink_sock_destruct_work(struct work_struct *work)
 	sk_free(&nlk->sk);
 }
 
+static void netlink_sock_destruct_work(struct work_struct *work)
+{
+	struct netlink_sock *nlk = container_of(work, struct netlink_sock,
+						work);
+
+	sk_free(&nlk->sk);
+}
+
 /* This lock without WQ_FLAG_EXCLUSIVE is good on UP and it is _very_ bad on
  * SMP. Look, when several writers sleep and reader wakes them up, all but one
  * immediately hit write lock and grab all the cpus. Exclusive sleep solves
@@ -679,6 +725,7 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 
 	if (protocol < 0 || protocol >= MAX_LINKS)
 		return -EPROTONOSUPPORT;
+	protocol = array_index_nospec(protocol, MAX_LINKS);
 
 	netlink_lock_table();
 #ifdef CONFIG_MODULES
@@ -1009,6 +1056,11 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 			return err;
 	}
 
+	if (nlk->ngroups == 0)
+		groups = 0;
+	else if (nlk->ngroups < 8*sizeof(groups))
+		groups &= (1UL << nlk->ngroups) - 1;
+
 	bound = nlk->bound;
 	if (bound) {
 		/* Ensure nlk->portid is up-to-date. */
@@ -1083,6 +1135,9 @@ static int netlink_connect(struct socket *sock, struct sockaddr *addr,
 		return 0;
 	}
 	if (addr->sa_family != AF_NETLINK)
+		return -EINVAL;
+
+	if (alen < sizeof(struct sockaddr_nl))
 		return -EINVAL;
 
 	if (alen < sizeof(struct sockaddr_nl))

@@ -535,6 +535,31 @@ int drm_crtc_check_viewport(const struct drm_crtc *crtc,
 }
 EXPORT_SYMBOL(drm_crtc_check_viewport);
 
+static int drm_crtc_register_all(struct drm_device *dev)
+{
+	struct drm_crtc *crtc;
+	int ret = 0;
+
+	drm_for_each_crtc(crtc, dev) {
+		if (crtc->funcs->late_register)
+			ret = crtc->funcs->late_register(crtc);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static void drm_crtc_unregister_all(struct drm_device *dev)
+{
+	struct drm_crtc *crtc;
+
+	drm_for_each_crtc(crtc, dev) {
+		if (crtc->funcs->early_unregister)
+			crtc->funcs->early_unregister(crtc);
+	}
+}
+
 /**
  * drm_mode_setcrtc - set CRTC configuration
  * @dev: drm device for the ioctl
@@ -733,6 +758,7 @@ out:
 
 	return ret;
 }
+EXPORT_SYMBOL(drm_mode_connector_set_obj_prop);
 
 int drm_mode_crtc_set_obj_prop(struct drm_mode_object *obj,
 			       struct drm_property *property,

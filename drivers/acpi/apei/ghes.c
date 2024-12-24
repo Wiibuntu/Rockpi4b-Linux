@@ -1121,6 +1121,7 @@ static int ghes_probe(struct platform_device *ghes_dev)
 			register_acpi_hed_notifier(&ghes_notifier_hed);
 		list_add_rcu(&ghes->list, &ghes_hed);
 		mutex_unlock(&ghes_list_mutex);
+		synchronize_rcu();
 		break;
 
 	case ACPI_HEST_NOTIFY_SEA:

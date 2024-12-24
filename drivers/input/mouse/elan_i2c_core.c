@@ -271,6 +271,27 @@ static int __elan_initialize(struct elan_tp_data *data)
 		woken_up = true;
 	}
 
+	error = elan_query_product(data);
+	if (error)
+		return error;
+
+	/*
+	 * Some ASUS devices were shipped with firmware that requires
+	 * touchpads to be woken up first, before attempting to switch
+	 * them into absolute reporting mode.
+	 */
+	if (elan_check_ASUS_special_fw(data)) {
+		error = data->ops->sleep_control(client, false);
+		if (error) {
+			dev_err(&client->dev,
+				"failed to wake device up: %d\n", error);
+			return error;
+		}
+
+		msleep(200);
+		woken_up = true;
+	}
+
 	data->mode |= ETP_ENABLE_ABS;
 	error = data->ops->set_mode(client, data->mode);
 	if (error) {
@@ -610,7 +631,7 @@ static ssize_t calibrate_store(struct device *dev,
 	int tries = 20;
 	int retval;
 	int error;
-	u8 val[3];
+	u8 val[ETP_CALIBRATE_MAX_LEN];
 
 	retval = mutex_lock_interruptible(&data->sysfs_mutex);
 	if (retval)
@@ -1094,6 +1115,13 @@ static int elan_probe(struct i2c_client *client,
 		dev_err(dev, "Failed to add disable regulator action: %d\n",
 			error);
 		return error;
+	}
+
+	/* Make sure there is something at this address */
+	error = i2c_smbus_read_byte(client);
+	if (error < 0) {
+		dev_dbg(&client->dev, "nothing at this address: %d\n", error);
+		return -ENXIO;
 	}
 
 	/* Make sure there is something at this address */

@@ -1609,6 +1609,11 @@ done:
 	return pdata;
 }
 
+static const struct v4l2_async_notifier_operations vpif_async_ops = {
+	.bound = vpif_async_bound,
+	.complete = vpif_async_complete,
+};
+
 /**
  * vpif_probe : This function probes the vpif capture driver
  * @pdev: platform device pointer

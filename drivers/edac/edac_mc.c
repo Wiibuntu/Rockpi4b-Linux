@@ -926,7 +926,7 @@ static void edac_inc_ce_error(struct mem_ctl_info *mci,
 	mci->ce_mc += count;
 
 	if (!enable_per_layer_report) {
-		mci->ce_noinfo_count += count;
+		mci->ue_noinfo_count += count;
 		return;
 	}
 

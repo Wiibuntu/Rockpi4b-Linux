@@ -831,7 +831,8 @@ rescan:
 }
 
 /**
- *	do_remount_sb - asks filesystem to change mount options.
+ *	do_remount_sb2 - asks filesystem to change mount options.
+ *	@mnt:   mount we are looking at
  *	@sb:	superblock in question
  *	@sb_flags: revised superblock flags
  *	@data:	the rest of options
@@ -1257,7 +1258,7 @@ struct dentry *mount_single(struct file_system_type *fs_type,
 EXPORT_SYMBOL(mount_single);
 
 struct dentry *
-mount_fs(struct file_system_type *type, int flags, const char *name, void *data)
+mount_fs(struct file_system_type *type, int flags, const char *name, struct vfsmount *mnt, void *data)
 {
 	struct dentry *root;
 	struct super_block *sb;
@@ -1274,7 +1275,10 @@ mount_fs(struct file_system_type *type, int flags, const char *name, void *data)
 			goto out_free_secdata;
 	}
 
-	root = type->mount(type, flags, name, data);
+	if (type->mount2)
+		root = type->mount2(mnt, type, flags, name, data);
+	else
+		root = type->mount(type, flags, name, data);
 	if (IS_ERR(root)) {
 		error = PTR_ERR(root);
 		goto out_free_secdata;

@@ -286,9 +286,9 @@ static uint16_t scl_vop_cal_scale(enum scale_mode mode, uint32_t src,
 	return val;
 }
 
-static void scl_vop_cal_scl_fac(struct vop *vop, const struct vop_win_data *win,
-			     uint32_t src_w, uint32_t src_h, uint32_t dst_w,
-			     uint32_t dst_h, uint32_t pixel_format)
+static void scl_vop_cal_scl_fac(struct vop *vop, struct vop_win *win,
+				uint32_t src_w, uint32_t src_h, uint32_t dst_w,
+				uint32_t dst_h, uint32_t pixel_format)
 {
 	uint16_t yrgb_hor_scl_mode, yrgb_ver_scl_mode;
 	uint16_t cbcr_hor_scl_mode = SCALE_NONE;

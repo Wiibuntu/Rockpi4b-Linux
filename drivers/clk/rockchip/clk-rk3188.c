@@ -22,6 +22,10 @@
 
 #define RK3066_GRF_SOC_STATUS	0x15c
 #define RK3188_GRF_SOC_STATUS	0xac
+#define RK3188_UART_FRAC_MAX_PRATE	600000000
+#define RK3188_I2S_FRAC_MAX_PRATE	600000000
+#define RK3188_SPDIF_FRAC_MAX_PRATE	600000000
+#define RK3188_HSADC_FRAC_MAX_PRATE	300000000
 
 enum rk3188_plls {
 	apll, cpll, dpll, gpll,
@@ -278,6 +282,30 @@ static struct rockchip_clk_branch common_uart3_fracmux __initdata =
 	MUX(SCLK_UART3, "sclk_uart3", mux_sclk_uart3_p, 0,
 			RK2928_CLKSEL_CON(16), 8, 2, MFLAGS);
 
+static struct rockchip_clk_branch common_hsadc_out_fracmux __initdata =
+	MUX(0, "sclk_hsadc_out", mux_sclk_hsadc_p, 0,
+			RK2928_CLKSEL_CON(22), 4, 2, MFLAGS);
+
+static struct rockchip_clk_branch common_spdif_fracmux __initdata =
+	MUX(SCLK_SPDIF, "sclk_spdif", mux_sclk_spdif_p, CLK_SET_RATE_PARENT,
+			RK2928_CLKSEL_CON(5), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch common_uart0_fracmux __initdata =
+	MUX(SCLK_UART0, "sclk_uart0", mux_sclk_uart0_p, 0,
+			RK2928_CLKSEL_CON(13), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch common_uart1_fracmux __initdata =
+	MUX(SCLK_UART1, "sclk_uart1", mux_sclk_uart1_p, 0,
+			RK2928_CLKSEL_CON(14), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch common_uart2_fracmux __initdata =
+	MUX(SCLK_UART2, "sclk_uart2", mux_sclk_uart2_p, 0,
+			RK2928_CLKSEL_CON(15), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch common_uart3_fracmux __initdata =
+	MUX(SCLK_UART3, "sclk_uart3", mux_sclk_uart3_p, 0,
+			RK2928_CLKSEL_CON(16), 8, 2, MFLAGS);
+
 static struct rockchip_clk_branch common_clk_branches[] __initdata = {
 	/*
 	 * Clock-Architecture Diagram 2
@@ -457,7 +485,7 @@ static struct rockchip_clk_branch common_clk_branches[] __initdata = {
 
 	/* hclk_cpu gates */
 	GATE(HCLK_ROM, "hclk_rom", "hclk_cpu", 0, RK2928_CLKGATE_CON(5), 6, GFLAGS),
-	GATE(HCLK_I2S0, "hclk_i2s0", "hclk_cpu", 0, RK2928_CLKGATE_CON(7), 2, GFLAGS),
+	GATE(HCLK_I2S0_2CH, "hclk_i2s0_2ch", "hclk_cpu", 0, RK2928_CLKGATE_CON(7), 2, GFLAGS),
 	GATE(HCLK_SPDIF, "hclk_spdif", "hclk_cpu", 0, RK2928_CLKGATE_CON(7), 1, GFLAGS),
 	GATE(0, "hclk_cpubus", "hclk_cpu", 0, RK2928_CLKGATE_CON(4), 8, GFLAGS),
 	/* hclk_ahb2apb is part of a clk branch */
@@ -562,6 +590,18 @@ static struct rockchip_clk_branch rk3066a_i2s2_fracmux __initdata =
 	MUX(SCLK_I2S2, "sclk_i2s2", mux_sclk_i2s2_p, 0,
 			RK2928_CLKSEL_CON(4), 8, 2, MFLAGS);
 
+static struct rockchip_clk_branch rk3066a_i2s0_fracmux __initdata =
+	MUX(SCLK_I2S0, "sclk_i2s0", mux_sclk_i2s0_p, 0,
+			RK2928_CLKSEL_CON(2), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3066a_i2s1_fracmux __initdata =
+	MUX(SCLK_I2S1, "sclk_i2s1", mux_sclk_i2s1_p, 0,
+			RK2928_CLKSEL_CON(3), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3066a_i2s2_fracmux __initdata =
+	MUX(SCLK_I2S2, "sclk_i2s2", mux_sclk_i2s2_p, 0,
+			RK2928_CLKSEL_CON(4), 8, 2, MFLAGS);
+
 static struct rockchip_clk_branch rk3066a_clk_branches[] __initdata = {
 	DIVTBL(0, "aclk_cpu_pre", "armclk", 0,
 			RK2928_CLKSEL_CON(1), 0, 3, DFLAGS | CLK_DIVIDER_READ_ONLY, div_aclk_cpu_t),
@@ -586,12 +626,12 @@ static struct rockchip_clk_branch rk3066a_clk_branches[] __initdata = {
 	COMPOSITE(0, "dclk_lcdc0_src", mux_pll_src_cpll_gpll_p, 0,
 			RK2928_CLKSEL_CON(27), 0, 1, MFLAGS, 8, 8, DFLAGS,
 			RK2928_CLKGATE_CON(3), 1, GFLAGS),
-	MUX(DCLK_LCDC0, "dclk_lcdc0", mux_rk3066_lcdc0_p, 0,
+	MUX(DCLK_LCDC0, "dclk_lcdc0", mux_rk3066_lcdc0_p, CLK_SET_RATE_PARENT,
 			RK2928_CLKSEL_CON(27), 4, 1, MFLAGS),
 	COMPOSITE(0, "dclk_lcdc1_src", mux_pll_src_cpll_gpll_p, 0,
 			RK2928_CLKSEL_CON(28), 0, 1, MFLAGS, 8, 8, DFLAGS,
 			RK2928_CLKGATE_CON(3), 2, GFLAGS),
-	MUX(DCLK_LCDC1, "dclk_lcdc1", mux_rk3066_lcdc1_p, 0,
+	MUX(DCLK_LCDC1, "dclk_lcdc1", mux_rk3066_lcdc1_p, CLK_SET_RATE_PARENT,
 			RK2928_CLKSEL_CON(28), 4, 1, MFLAGS),
 
 	COMPOSITE_NOMUX(0, "cif1_pre", "cif_src", 0,
@@ -602,7 +642,7 @@ static struct rockchip_clk_branch rk3066a_clk_branches[] __initdata = {
 
 	GATE(0, "pclkin_cif1", "ext_cif1", 0,
 			RK2928_CLKGATE_CON(3), 4, GFLAGS),
-	INVERTER(0, "pclk_cif1", "pclkin_cif1",
+	INVERTER(PCLK_CIF1, "pclk_cif1", "pclkin_cif1",
 			RK2928_CLKSEL_CON(30), 12, IFLAGS),
 
 	COMPOSITE(0, "aclk_gpu_src", mux_pll_src_cpll_gpll_p, 0,

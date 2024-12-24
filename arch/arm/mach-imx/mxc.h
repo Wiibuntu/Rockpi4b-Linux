@@ -85,6 +85,11 @@ static inline bool cpu_is_imx6sll(void)
 	return __mxc_cpu_type == MXC_CPU_IMX6SLL;
 }
 
+static inline bool cpu_is_imx6ull(void)
+{
+	return __mxc_cpu_type == MXC_CPU_IMX6ULL;
+}
+
 static inline bool cpu_is_imx6q(void)
 {
 	return __mxc_cpu_type == MXC_CPU_IMX6Q;

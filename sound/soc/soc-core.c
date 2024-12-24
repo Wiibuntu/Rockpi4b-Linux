@@ -937,6 +937,7 @@ static struct snd_soc_component *soc_find_component(
 
 	return NULL;
 }
+EXPORT_SYMBOL_GPL(snd_soc_find_dai);
 
 /**
  * snd_soc_find_dai - Find a registered DAI
@@ -2257,6 +2258,7 @@ static int snd_soc_instantiate_card(struct snd_soc_card *card)
 	}
 
 	card->instantiated = 1;
+	dapm_mark_endpoints_dirty(card);
 	snd_soc_dapm_sync(&card->dapm);
 	mutex_unlock(&card->mutex);
 	mutex_unlock(&client_mutex);
@@ -2267,7 +2269,8 @@ probe_aux_dev_err:
 	soc_remove_aux_devices(card);
 
 probe_dai_err:
-	soc_remove_dai_links(card);
+	if (ret != -ENODEV)
+		soc_remove_dai_links(card);
 
 card_probe_error:
 	if (card->remove)
@@ -2314,6 +2317,9 @@ static int soc_cleanup_card_resources(struct snd_soc_card *card)
 	/* make sure any delayed work runs */
 	list_for_each_entry(rtd, &card->rtd_list, list)
 		flush_delayed_work(&rtd->delayed_work);
+
+	/* free the ALSA card at first; this syncs with pending operations */
+	snd_card_free(card->snd_card);
 
 	/* free the ALSA card at first; this syncs with pending operations */
 	snd_card_free(card->snd_card);
@@ -4007,6 +4013,7 @@ static int snd_soc_of_get_slot_mask(struct device_node *np,
 
 	return val;
 }
+EXPORT_SYMBOL_GPL(snd_soc_get_dai_name);
 
 int snd_soc_of_parse_tdm_slot(struct device_node *np,
 			      unsigned int *tx_mask,

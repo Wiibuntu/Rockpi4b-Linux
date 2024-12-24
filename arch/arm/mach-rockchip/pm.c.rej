@@ -1,0 +1,36 @@
+--- arch/arm/mach-rockchip/pm.c
++++ arch/arm/mach-rockchip/pm.c
+@@ -66,13 +73,28 @@ static inline u32 rk3288_l2_config(void)
+ 	return l2ctlr;
+ }
+ 
+-static void rk3288_config_bootdata(void)
++static void __init rk3288_init_pmu_sram(void)
+ {
+-	rkpm_bootdata_cpusp = rk3288_bootram_phy + (SZ_4K - 8);
+-	rkpm_bootdata_cpu_code = virt_to_phys(cpu_resume);
++	extern char _binary_arch_arm_mach_rockchip_embedded_rk3288_resume_bin_start;
++	extern char _binary_arch_arm_mach_rockchip_embedded_rk3288_resume_bin_end;
++	u32 size = &_binary_arch_arm_mach_rockchip_embedded_rk3288_resume_bin_end -
++		   &_binary_arch_arm_mach_rockchip_embedded_rk3288_resume_bin_start;
++	struct rk3288_resume_params *params;
++
++	/* move resume code and data to PMU sram */
++	memcpy(rk3288_bootram_base,
++	       &_binary_arch_arm_mach_rockchip_embedded_rk3288_resume_bin_start,
++	       size);
++
++	/* setup the params that we know at boot time */
++	params = (struct rk3288_resume_params *)rk3288_bootram_base;
+ 
+-	rkpm_bootdata_l2ctlr_f  = 1;
+-	rkpm_bootdata_l2ctlr = rk3288_l2_config();
++	params->cpu_resume = (void *)(u32)virt_to_phys(cpu_resume);
++
++	params->l2ctlr_f = 1;
++	params->l2ctlr = rk3288_l2_config();
++
++	rk3288_ddr_suspend_init(&params->ddr_save_data);
+ }
+ 
+ #define GRF_UOC0_CON0			0x320

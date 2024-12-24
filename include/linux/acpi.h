@@ -80,6 +80,9 @@ static inline void acpi_free_fwnode_static(struct fwnode_handle *fwnode)
 	kfree(fwnode);
 }
 
+
+extern const struct fwnode_operations acpi_fwnode_ops;
+
 /**
  * ACPI_DEVICE_CLASS - macro used to describe an ACPI device with
  * the PCI-defined class-code information
@@ -681,6 +684,12 @@ static inline bool is_acpi_data_node(struct fwnode_handle *fwnode)
 static inline struct acpi_data_node *to_acpi_data_node(struct fwnode_handle *fwnode)
 {
 	return NULL;
+}
+
+static inline bool acpi_data_node_match(struct fwnode_handle *fwnode,
+					const char *name)
+{
+	return false;
 }
 
 static inline bool acpi_data_node_match(struct fwnode_handle *fwnode,

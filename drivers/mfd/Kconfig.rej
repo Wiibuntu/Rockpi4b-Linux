@@ -1,0 +1,59 @@
+--- drivers/mfd/Kconfig
++++ drivers/mfd/Kconfig
+@@ -108,7 +108,7 @@ config MFD_CROS_EC
+ 	select MFD_CORE
+ 	select CHROME_PLATFORMS
+ 	select CROS_EC_PROTO
+-	depends on X86 || ARM || COMPILE_TEST
++	depends on X86 || ARM || ARM64 || COMPILE_TEST
+ 	help
+ 	  If you say Y here you get support for the ChromeOS Embedded
+ 	  Controller (EC) providing keyboard, battery and power services.
+@@ -778,6 +778,16 @@ config MFD_RC5T583
+ 	  Additional drivers must be enabled in order to use the
+ 	  different functionality of the device.
+ 
++config MFD_RK618
++	tristate "Rockchip RK618 MFD Driver"
++	depends on I2C
++	depends on OF
++	select MFD_CORE
++	select REGMAP_I2C
++	select REGMAP_IRQ
++	help
++	  if you say yes here you get support for the RK618 from Rockchip.
++
+ config MFD_RK808
+ 	tristate "Rockchip RK808 Power Management chip"
+ 	depends on I2C && OF
+@@ -1457,9 +1467,17 @@ config MFD_WM831X_SPI
+ config MFD_WM8350
+ 	bool
+ 
++config MFD_RK1000
++	bool "RK1000 CORE module support"
++	select MFD_CORE
++	help
++	  if you say yes here you get support for the RK1000, with func as
++	  TVEncoder or CODEC.
++
+ config MFD_WM8350_I2C
+ 	bool "Wolfson Microelectronics WM8350 with I2C"
+ 	select MFD_WM8350
++	select REGMAP_I2C
+ 	depends on I2C=y
+ 	help
+ 	  The WM8350 is an integrated audio and power management
+@@ -1529,4 +1547,12 @@ config MFD_VEXPRESS_SYSREG
+ 	  on the ARM Ltd. Versatile Express board.
+ 
+ endmenu
++
++config FUSB_30X
++	tristate "Fairchild fusb302 Support"
++	depends on I2C=y
++	help
++	  This option provides a driver for the Fairchild FUSB302.
++	  It support typec-pd functionality by controlled using I2C.
++
+ endif

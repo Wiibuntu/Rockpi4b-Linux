@@ -103,6 +103,8 @@ static inline void crypto_set_skcipher_spawn(
 
 int crypto_grab_skcipher(struct crypto_skcipher_spawn *spawn, const char *name,
 			 u32 type, u32 mask);
+int crypto_grab_skcipher2(struct crypto_skcipher_spawn *spawn,
+			  const char *name, u32 type, u32 mask);
 
 static inline void crypto_drop_skcipher(struct crypto_skcipher_spawn *spawn)
 {
@@ -179,6 +181,32 @@ static inline void *skcipher_request_ctx(struct skcipher_request *req)
 static inline u32 skcipher_request_flags(struct skcipher_request *req)
 {
 	return req->base.flags;
+}
+
+static inline unsigned int crypto_skcipher_alg_min_keysize(
+	struct skcipher_alg *alg)
+{
+	if ((alg->base.cra_flags & CRYPTO_ALG_TYPE_MASK) ==
+	    CRYPTO_ALG_TYPE_BLKCIPHER)
+		return alg->base.cra_blkcipher.min_keysize;
+
+	if (alg->base.cra_ablkcipher.encrypt)
+		return alg->base.cra_ablkcipher.min_keysize;
+
+	return alg->min_keysize;
+}
+
+static inline unsigned int crypto_skcipher_alg_max_keysize(
+	struct skcipher_alg *alg)
+{
+	if ((alg->base.cra_flags & CRYPTO_ALG_TYPE_MASK) ==
+	    CRYPTO_ALG_TYPE_BLKCIPHER)
+		return alg->base.cra_blkcipher.max_keysize;
+
+	if (alg->base.cra_ablkcipher.encrypt)
+		return alg->base.cra_ablkcipher.max_keysize;
+
+	return alg->max_keysize;
 }
 
 static inline unsigned int crypto_skcipher_alg_min_keysize(

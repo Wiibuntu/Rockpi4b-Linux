@@ -406,7 +406,7 @@ bool stmmac_eee_init(struct stmmac_priv *priv)
 			 * changed).
 			 * In that case the driver disable own timers.
 			 */
-			spin_lock_irqsave(&priv->lock, flags);
+			mutex_lock(&priv->lock);
 			if (priv->eee_active) {
 				netdev_dbg(priv->dev, "disable EEE\n");
 				del_timer_sync(&priv->eee_ctrl_timer);
@@ -414,11 +414,11 @@ bool stmmac_eee_init(struct stmmac_priv *priv)
 							     tx_lpi_timer);
 			}
 			priv->eee_active = 0;
-			spin_unlock_irqrestore(&priv->lock, flags);
+			mutex_unlock(&priv->lock);
 			goto out;
 		}
 		/* Activate the EEE and start timers */
-		spin_lock_irqsave(&priv->lock, flags);
+		mutex_lock(&priv->lock);
 		if (!priv->eee_active) {
 			priv->eee_active = 1;
 			timer_setup(&priv->eee_ctrl_timer,
@@ -434,7 +434,7 @@ bool stmmac_eee_init(struct stmmac_priv *priv)
 		priv->hw->mac->set_eee_pls(priv->hw, ndev->phydev->link);
 
 		ret = true;
-		spin_unlock_irqrestore(&priv->lock, flags);
+		mutex_unlock(&priv->lock);
 
 		netdev_dbg(priv->dev, "Energy-Efficient Ethernet initialized\n");
 	}
@@ -877,7 +877,7 @@ static void stmmac_adjust_link(struct net_device *dev)
 	if (new_state && netif_msg_link(priv))
 		phy_print_status(phydev);
 
-	spin_unlock_irqrestore(&priv->lock, flags);
+	mutex_unlock(&priv->lock);
 
 	if (phydev->is_pseudo_fixed_link)
 		/* Stop PHY layer to call the hook to adjust the link in case
@@ -2203,6 +2203,9 @@ static void stmmac_check_ether_addr(struct stmmac_priv *priv)
 	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
 		priv->hw->mac->get_umac_addr(priv->hw,
 					     priv->dev->dev_addr, 0);
+		if (likely(priv->plat->get_eth_addr))
+			priv->plat->get_eth_addr(priv->plat->bsp_priv,
+				priv->dev->dev_addr);
 		if (!is_valid_ether_addr(priv->dev->dev_addr))
 			eth_hw_addr_random(priv->dev);
 		netdev_info(priv->dev, "device MAC address %pM\n",
@@ -3874,6 +3877,20 @@ static int stmmac_set_mac_address(struct net_device *ndev, void *addr)
 	return ret;
 }
 
+static int stmmac_set_mac_address(struct net_device *ndev, void *addr)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	int ret = 0;
+
+	ret = eth_mac_addr(ndev, addr);
+	if (ret)
+		return ret;
+
+	priv->hw->mac->set_umac_addr(priv->hw, ndev->dev_addr, 0);
+
+	return ret;
+}
+
 #ifdef CONFIG_DEBUG_FS
 static struct dentry *stmmac_fs_dir;
 
@@ -4495,8 +4512,7 @@ int stmmac_suspend(struct device *dev)
 	if (ndev->phydev)
 		phy_stop(ndev->phydev);
 
-	spin_lock_irqsave(&priv->lock, flags);
-
+	mutex_lock(&priv->lock);
 	netif_device_detach(ndev);
 	stmmac_stop_all_queues(priv);
 
@@ -4516,7 +4532,7 @@ int stmmac_suspend(struct device *dev)
 		clk_disable(priv->plat->pclk);
 		clk_disable(priv->plat->stmmac_clk);
 	}
-	spin_unlock_irqrestore(&priv->lock, flags);
+	mutex_unlock(&priv->lock);
 
 	priv->oldlink = false;
 	priv->speed = SPEED_UNKNOWN;
@@ -4587,7 +4603,7 @@ int stmmac_resume(struct device *dev)
 			stmmac_mdio_reset(priv->mii);
 	}
 
-	netif_device_attach(ndev);
+	mutex_lock(&priv->lock);
 
 	spin_lock_irqsave(&priv->lock, flags);
 
@@ -4603,7 +4619,9 @@ int stmmac_resume(struct device *dev)
 
 	stmmac_start_all_queues(priv);
 
-	spin_unlock_irqrestore(&priv->lock, flags);
+	netif_device_attach(ndev);
+
+	mutex_unlock(&priv->lock);
 
 	if (ndev->phydev)
 		phy_start(ndev->phydev);

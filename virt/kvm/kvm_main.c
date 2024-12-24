@@ -139,6 +139,7 @@ __weak void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
 		unsigned long start, unsigned long end)
 {
 }
+EXPORT_SYMBOL_GPL(vcpu_load);
 
 bool kvm_is_reserved_pfn(kvm_pfn_t pfn)
 {
@@ -147,6 +148,7 @@ bool kvm_is_reserved_pfn(kvm_pfn_t pfn)
 
 	return true;
 }
+EXPORT_SYMBOL_GPL(vcpu_put);
 
 /*
  * Switches to specified vcpu, until a matching vcpu_put()
@@ -616,6 +618,16 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	mutex_init(&kvm->irq_lock);
 	mutex_init(&kvm->slots_lock);
 	refcount_set(&kvm->users_count, 1);
+	INIT_LIST_HEAD(&kvm->devices);
+
+	spin_lock_init(&kvm->mmu_lock);
+	atomic_inc(&current->mm->mm_count);
+	kvm->mm = current->mm;
+	kvm_eventfd_init(kvm);
+	mutex_init(&kvm->lock);
+	mutex_init(&kvm->irq_lock);
+	mutex_init(&kvm->slots_lock);
+	atomic_set(&kvm->users_count, 1);
 	INIT_LIST_HEAD(&kvm->devices);
 
 	r = kvm_arch_init_vm(kvm, type);
@@ -2089,6 +2101,9 @@ static void grow_halt_poll_ns(struct kvm_vcpu *vcpu)
 	if (val > halt_poll_ns)
 		val = halt_poll_ns;
 
+	if (val > halt_poll_ns)
+		val = halt_poll_ns;
+
 	vcpu->halt_poll_ns = val;
 	trace_kvm_halt_poll_ns_grow(vcpu->vcpu_id, val, old);
 }
@@ -2780,6 +2795,9 @@ static long kvm_device_ioctl(struct file *filp, unsigned int ioctl,
 			     unsigned long arg)
 {
 	struct kvm_device *dev = filp->private_data;
+
+	if (dev->kvm->mm != current->mm)
+		return -EIO;
 
 	switch (ioctl) {
 	case KVM_SET_DEVICE_ATTR:

@@ -1,0 +1,21 @@
+--- include/linux/irq.h
++++ include/linux/irq.h
+@@ -206,6 +206,7 @@ enum {
+ 	IRQD_IRQ_INPROGRESS		= (1 << 18),
+ 	IRQD_WAKEUP_ARMED		= (1 << 19),
+ 	IRQD_FORWARDED_TO_VCPU		= (1 << 20),
++	IRQD_IRQ_STARTED		= (1 << 22),
+ };
+ 
+ #define __irqd_to_state(d)		((d)->common->state_use_accessors)
+@@ -522,6 +528,10 @@ static inline void irq_set_chip_and_handler(unsigned int irq, struct irq_chip *c
+ }
+ 
+ extern int irq_set_percpu_devid(unsigned int irq);
++extern int irq_set_percpu_devid_partition(unsigned int irq,
++					  const struct cpumask *affinity);
++extern int irq_get_percpu_devid_partition(unsigned int irq,
++					  struct cpumask *affinity);
+ 
+ extern void
+ __irq_set_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,

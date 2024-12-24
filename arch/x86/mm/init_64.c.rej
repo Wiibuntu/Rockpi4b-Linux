@@ -1,0 +1,19 @@
+--- arch/x86/mm/init_64.c
++++ arch/x86/mm/init_64.c
+@@ -1072,7 +1082,6 @@ void __init mem_init(void)
+ 	mem_init_print_info(NULL);
+ }
+ 
+-#ifdef CONFIG_DEBUG_RODATA
+ const int rodata_test_data = 0xC3;
+ EXPORT_SYMBOL_GPL(rodata_test_data);
+ 
+@@ -1164,8 +1173,6 @@ void mark_rodata_ro(void)
+ 	debug_checkwx();
+ }
+ 
+-#endif
+-
+ int kern_addr_valid(unsigned long addr)
+ {
+ 	unsigned long above = ((long)addr) >> __VIRTUAL_MASK_SHIFT;

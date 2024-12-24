@@ -1401,6 +1401,8 @@ static int genpd_add_device(struct generic_pm_domain *genpd, struct device *dev,
 
 	dev_pm_domain_set(dev, &genpd->domain);
 
+	dev->pm_domain = &genpd->domain;
+
 	genpd->device_count++;
 	genpd->max_off_time_changed = true;
 
@@ -1463,6 +1465,8 @@ static int genpd_remove_device(struct generic_pm_domain *genpd,
 		genpd->detach_dev(genpd, dev);
 
 	dev_pm_domain_set(dev, NULL);
+
+	dev->pm_domain = NULL;
 
 	list_del_init(&pdd->list_node);
 

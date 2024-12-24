@@ -1,0 +1,27 @@
+--- Documentation/devicetree/bindings/iio/adc/rockchip-saradc.txt
++++ Documentation/devicetree/bindings/iio/adc/rockchip-saradc.txt
+@@ -1,7 +1,14 @@
+ Rockchip Successive Approximation Register (SAR) A/D Converter bindings
+ 
+ Required properties:
+-- compatible: Should be "rockchip,saradc" or "rockchip,rk3066-tsadc"
++- compatible: should be "rockchip,<name>-saradc" or "rockchip,rk3066-tsadc"
++   - "rockchip,saradc": for rk3188, rk3288
++   - "rockchip,rk3066-tsadc": for rk3036
++   - "rockchip,rk3399-saradc": for rk3399
++   - "rockchip,rk3328-saradc", "rockchip,rk3399-saradc": for rk3328
++   - "rockchip,rv1108-saradc", "rockchip,rk3399-saradc": for rv1108
++   - "rockchip,rk1808-saradc", "rockchip,rk3399-saradc": for rk1808
++
+ - reg: physical base address of the controller and length of memory mapped
+        region.
+ - interrupts: The interrupt number to the cpu. The interrupt specifier format
+@@ -24,6 +36,8 @@ Example:
+ 		interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
+ 		clocks = <&cru SCLK_SARADC>, <&cru PCLK_SARADC>;
+ 		clock-names = "saradc", "apb_pclk";
++		resets = <&cru SRST_SARADC>;
++		reset-names = "saradc-apb";
+ 		#io-channel-cells = <1>;
+ 		vref-supply = <&vcc18>;
+ 	};

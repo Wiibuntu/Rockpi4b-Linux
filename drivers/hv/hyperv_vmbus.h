@@ -42,6 +42,16 @@
 /*
  * Timeout for guest-host handshake for services.
  */
+#define HV_UTIL_NEGO_TIMEOUT 60
+
+/*
+ * Timeout for services such as KVP and fcopy.
+ */
+#define HV_UTIL_TIMEOUT 30
+
+/*
+ * Timeout for guest-host handshake for services.
+ */
 #define HV_UTIL_NEGO_TIMEOUT 55
 
 /* Define synthetic interrupt controller flag constants. */

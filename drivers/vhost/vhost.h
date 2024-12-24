@@ -80,6 +80,27 @@ enum vhost_uaddr_type {
 	VHOST_NUM_ADDRS = 3,
 };
 
+#define START(node) ((node)->start)
+#define LAST(node) ((node)->last)
+
+struct vhost_umem_node {
+	struct rb_node rb;
+	struct list_head link;
+	__u64 start;
+	__u64 last;
+	__u64 size;
+	__u64 userspace_addr;
+	__u32 perm;
+	__u32 flags_padding;
+	__u64 __subtree_last;
+};
+
+struct vhost_umem {
+	struct rb_root umem_tree;
+	struct list_head umem_list;
+	int numem;
+};
+
 /* The virtqueue structure describes a queue attached to a device. */
 struct vhost_virtqueue {
 	struct vhost_dev *dev;

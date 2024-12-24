@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/node.c
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
@@ -174,9 +171,61 @@ static struct nat_entry *__init_nat_entry(struct f2fs_nm_info *nm_i,
 	return ne;
 }
 
+static struct nat_entry *__alloc_nat_entry(nid_t nid, bool no_fail)
+{
+	struct nat_entry *new;
+
+	if (no_fail)
+		new = f2fs_kmem_cache_alloc(nat_entry_slab, GFP_F2FS_ZERO);
+	else
+		new = kmem_cache_alloc(nat_entry_slab, GFP_F2FS_ZERO);
+	if (new) {
+		nat_set_nid(new, nid);
+		nat_reset_flag(new);
+	}
+	return new;
+}
+
+static void __free_nat_entry(struct nat_entry *e)
+{
+	kmem_cache_free(nat_entry_slab, e);
+}
+
+/* must be locked by nat_tree_lock */
+static struct nat_entry *__init_nat_entry(struct f2fs_nm_info *nm_i,
+	struct nat_entry *ne, struct f2fs_nat_entry *raw_ne, bool no_fail)
+{
+	if (no_fail)
+		f2fs_radix_tree_insert(&nm_i->nat_root, nat_get_nid(ne), ne);
+	else if (radix_tree_insert(&nm_i->nat_root, nat_get_nid(ne), ne))
+		return NULL;
+
+	if (raw_ne)
+		node_info_from_raw_nat(&ne->ni, raw_ne);
+
+	spin_lock(&nm_i->nat_list_lock);
+	list_add_tail(&ne->list, &nm_i->nat_entries);
+	spin_unlock(&nm_i->nat_list_lock);
+
+	nm_i->nat_cnt++;
+	return ne;
+}
+
 static struct nat_entry *__lookup_nat_cache(struct f2fs_nm_info *nm_i, nid_t n)
 {
-	return radix_tree_lookup(&nm_i->nat_root, n);
+	struct nat_entry *ne;
+
+	ne = radix_tree_lookup(&nm_i->nat_root, n);
+
+	/* for recent accessed nat entry, move it to tail of lru list */
+	if (ne && !get_nat_flag(ne, IS_DIRTY)) {
+		spin_lock(&nm_i->nat_list_lock);
+		if (!list_empty(&ne->list))
+			list_move_tail(&ne->list, &nm_i->nat_entries);
+		spin_unlock(&nm_i->nat_list_lock);
+	}
+
+	return ne;
 }
 
 static unsigned int __gang_lookup_nat_cache(struct f2fs_nm_info *nm_i,
@@ -260,7 +309,73 @@ static unsigned int __gang_lookup_nat_set(struct f2fs_nm_info *nm_i,
 							start, nr);
 }
 
-int need_dentry_mark(struct f2fs_sb_info *sbi, nid_t nid)
+bool f2fs_in_warm_node_list(struct f2fs_sb_info *sbi, struct page *page)
+{
+	return NODE_MAPPING(sbi) == page->mapping &&
+			IS_DNODE(page) && is_cold_node(page);
+}
+
+void f2fs_init_fsync_node_info(struct f2fs_sb_info *sbi)
+{
+	spin_lock_init(&sbi->fsync_node_lock);
+	INIT_LIST_HEAD(&sbi->fsync_node_list);
+	sbi->fsync_seg_id = 0;
+	sbi->fsync_node_num = 0;
+}
+
+static unsigned int f2fs_add_fsync_node_entry(struct f2fs_sb_info *sbi,
+							struct page *page)
+{
+	struct fsync_node_entry *fn;
+	unsigned long flags;
+	unsigned int seq_id;
+
+	fn = f2fs_kmem_cache_alloc(fsync_node_entry_slab, GFP_NOFS);
+
+	get_page(page);
+	fn->page = page;
+	INIT_LIST_HEAD(&fn->list);
+
+	spin_lock_irqsave(&sbi->fsync_node_lock, flags);
+	list_add_tail(&fn->list, &sbi->fsync_node_list);
+	fn->seq_id = sbi->fsync_seg_id++;
+	seq_id = fn->seq_id;
+	sbi->fsync_node_num++;
+	spin_unlock_irqrestore(&sbi->fsync_node_lock, flags);
+
+	return seq_id;
+}
+
+void f2fs_del_fsync_node_entry(struct f2fs_sb_info *sbi, struct page *page)
+{
+	struct fsync_node_entry *fn;
+	unsigned long flags;
+
+	spin_lock_irqsave(&sbi->fsync_node_lock, flags);
+	list_for_each_entry(fn, &sbi->fsync_node_list, list) {
+		if (fn->page == page) {
+			list_del(&fn->list);
+			sbi->fsync_node_num--;
+			spin_unlock_irqrestore(&sbi->fsync_node_lock, flags);
+			kmem_cache_free(fsync_node_entry_slab, fn);
+			put_page(page);
+			return;
+		}
+	}
+	spin_unlock_irqrestore(&sbi->fsync_node_lock, flags);
+	f2fs_bug_on(sbi, 1);
+}
+
+void f2fs_reset_fsync_node_info(struct f2fs_sb_info *sbi)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&sbi->fsync_node_lock, flags);
+	sbi->fsync_seg_id = 0;
+	spin_unlock_irqrestore(&sbi->fsync_node_lock, flags);
+}
+
+int f2fs_need_dentry_mark(struct f2fs_sb_info *sbi, nid_t nid)
 {
 	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	struct nat_entry *e;
@@ -277,7 +392,7 @@ int need_dentry_mark(struct f2fs_sb_info *sbi, nid_t nid)
 	return need;
 }
 
-bool is_checkpointed_node(struct f2fs_sb_info *sbi, nid_t nid)
+bool f2fs_is_checkpointed_node(struct f2fs_sb_info *sbi, nid_t nid)
 {
 	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	struct nat_entry *e;
@@ -291,7 +406,7 @@ bool is_checkpointed_node(struct f2fs_sb_info *sbi, nid_t nid)
 	return is_cp;
 }
 
-bool need_inode_block_update(struct f2fs_sb_info *sbi, nid_t ino)
+bool f2fs_need_inode_block_update(struct f2fs_sb_info *sbi, nid_t ino)
 {
 	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	struct nat_entry *e;
@@ -373,6 +488,9 @@ static void set_node_addr(struct f2fs_sb_info *sbi, struct node_info *ni,
 		unsigned char version = nat_get_version(e);
 		nat_set_version(e, inc_node_version(version));
 	}
+	/* let's free early to reduce memory consumption */
+	if (e != new)
+		__free_nat_entry(new);
 
 	/* change address */
 	nat_set_blkaddr(e, new_blkaddr);
@@ -391,7 +509,7 @@ static void set_node_addr(struct f2fs_sb_info *sbi, struct node_info *ni,
 	up_write(&nm_i->nat_tree_lock);
 }
 
-int try_to_free_nats(struct f2fs_sb_info *sbi, int nr_shrink)
+int f2fs_try_to_free_nats(struct f2fs_sb_info *sbi, int nr_shrink)
 {
 	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	int nr = nr_shrink;
@@ -399,13 +517,25 @@ int try_to_free_nats(struct f2fs_sb_info *sbi, int nr_shrink)
 	if (!down_write_trylock(&nm_i->nat_tree_lock))
 		return 0;
 
-	while (nr_shrink && !list_empty(&nm_i->nat_entries)) {
+	spin_lock(&nm_i->nat_list_lock);
+	while (nr_shrink) {
 		struct nat_entry *ne;
+
+		if (list_empty(&nm_i->nat_entries))
+			break;
+
 		ne = list_first_entry(&nm_i->nat_entries,
 					struct nat_entry, list);
+		list_del(&ne->list);
+		spin_unlock(&nm_i->nat_list_lock);
+
 		__del_from_nat_cache(nm_i, ne);
 		nr_shrink--;
+
+		spin_lock(&nm_i->nat_list_lock);
 	}
+	spin_unlock(&nm_i->nat_list_lock);
+
 	up_write(&nm_i->nat_tree_lock);
 	return nr - nr_shrink;
 }
@@ -606,7 +736,7 @@ got:
  * f2fs_unlock_op() only if ro is not set RDONLY_NODE.
  * In the case of RDONLY_NODE, we don't need to care about mutex.
  */
-int get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
+int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(dn->inode);
 	struct page *npage[4];
@@ -681,7 +811,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 		}
 
 		if (!done) {
-			npage[i] = get_node_page(sbi, nids[i]);
+			npage[i] = f2fs_get_node_page(sbi, nids[i]);
 			if (IS_ERR(npage[i])) {
 				err = PTR_ERR(npage[i]);
 				f2fs_put_page(npage[0], 0);
@@ -762,8 +892,11 @@ static int truncate_dnode(struct dnode_of_data *dn)
 	/* Make dnode_of_data for parameter */
 	dn->node_page = page;
 	dn->ofs_in_node = 0;
-	truncate_data_blocks(dn);
-	truncate_node(dn);
+	f2fs_truncate_data_blocks(dn);
+	err = truncate_node(dn);
+	if (err)
+		return err;
+
 	return 1;
 }
 
@@ -828,7 +961,9 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs,
 	if (!ofs) {
 		/* remove current indirect node */
 		dn->node_page = page;
-		truncate_node(dn);
+		ret = truncate_node(dn);
+		if (ret)
+			goto out_err;
 		freed++;
 	} else {
 		f2fs_put_page(page, 1);
@@ -859,7 +994,7 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 	/* get indirect nodes in the path */
 	for (i = 0; i < idx + 1; i++) {
 		/* reference count'll be increased */
-		pages[i] = get_node_page(F2FS_I_SB(dn->inode), nid[i]);
+		pages[i] = f2fs_get_node_page(F2FS_I_SB(dn->inode), nid[i]);
 		if (IS_ERR(pages[i])) {
 			err = PTR_ERR(pages[i]);
 			idx = i - 1;
@@ -869,6 +1004,8 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 	}
 
 	ra_node_pages(pages[idx], offset[idx + 1], NIDS_PER_BLOCK);
+
+	f2fs_ra_node_pages(pages[idx], offset[idx + 1], NIDS_PER_BLOCK);
 
 	/* free direct nodes linked to a partial indirect node */
 	for (i = offset[idx + 1]; i < NIDS_PER_BLOCK; i++) {
@@ -905,7 +1042,7 @@ fail:
 /*
  * All the block addresses of data and nodes should be nullified.
  */
-int truncate_inode_blocks(struct inode *inode, pgoff_t from)
+int f2fs_truncate_inode_blocks(struct inode *inode, pgoff_t from)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	int err = 0, cont = 1;
@@ -2810,8 +2947,13 @@ void destroy_node_manager(struct f2fs_sb_info *sbi)
 		unsigned idx;
 
 		nid = nat_get_nid(natvec[found - 1]) + 1;
-		for (idx = 0; idx < found; idx++)
+		for (idx = 0; idx < found; idx++) {
+			spin_lock(&nm_i->nat_list_lock);
+			list_del(&natvec[idx]->list);
+			spin_unlock(&nm_i->nat_list_lock);
+
 			__del_from_nat_cache(nm_i, natvec[idx]);
+		}
 	}
 	f2fs_bug_on(sbi, nm_i->nat_cnt);
 
@@ -2866,8 +3008,15 @@ int __init create_node_manager_caches(void)
 			sizeof(struct nat_entry_set));
 	if (!nat_entry_set_slab)
 		goto destroy_free_nid;
+
+	fsync_node_entry_slab = f2fs_kmem_cache_create("fsync_node_entry",
+			sizeof(struct fsync_node_entry));
+	if (!fsync_node_entry_slab)
+		goto destroy_nat_entry_set;
 	return 0;
 
+destroy_nat_entry_set:
+	kmem_cache_destroy(nat_entry_set_slab);
 destroy_free_nid:
 	kmem_cache_destroy(free_nid_slab);
 destroy_nat_entry:
@@ -2876,8 +3025,9 @@ fail:
 	return -ENOMEM;
 }
 
-void destroy_node_manager_caches(void)
+void f2fs_destroy_node_manager_caches(void)
 {
+	kmem_cache_destroy(fsync_node_entry_slab);
 	kmem_cache_destroy(nat_entry_set_slab);
 	kmem_cache_destroy(free_nid_slab);
 	kmem_cache_destroy(nat_entry_slab);

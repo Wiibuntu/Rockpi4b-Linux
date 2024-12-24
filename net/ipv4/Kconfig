@@ -394,6 +394,7 @@ config INET_XFRM_TUNNEL
 
 config INET_TUNNEL
 	tristate
+	select DST_CACHE
 	default n
 
 config INET_XFRM_MODE_TRANSPORT
@@ -454,6 +455,19 @@ config INET_RAW_DIAG
 	---help---
 	  Support for RAW socket monitoring interface used by the ss tool.
 	  If unsure, say Y.
+
+config INET_DIAG_DESTROY
+	bool "INET: allow privileged process to administratively close sockets"
+	depends on INET_DIAG
+	default n
+	---help---
+	  Provides a SOCK_DESTROY operation that allows privileged processes
+	  (e.g., a connection manager or a network administration tool such as
+	  ss) to close sockets opened by other processes. Closing a socket in
+	  this way interrupts any blocking read/write/connect operations on
+	  the socket and causes future socket calls to behave as if the socket
+	  had been disconnected.
+	  If unsure, say N.
 
 config INET_DIAG_DESTROY
 	bool "INET: allow privileged process to administratively close sockets"

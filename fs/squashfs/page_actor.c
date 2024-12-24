@@ -9,39 +9,11 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
+#include <linux/buffer_head.h>
 #include "page_actor.h"
 
-/*
- * This file contains implementations of page_actor for decompressing into
- * an intermediate buffer, and for decompressing directly into the
- * page cache.
- *
- * Calling code should avoid sleeping between calls to squashfs_first_page()
- * and squashfs_finish_page().
- */
-
-/* Implementation of page_actor for decompressing into intermediate buffer */
-static void *cache_first_page(struct squashfs_page_actor *actor)
-{
-	actor->next_page = 1;
-	return actor->buffer[0];
-}
-
-static void *cache_next_page(struct squashfs_page_actor *actor)
-{
-	if (actor->next_page == actor->pages)
-		return NULL;
-
-	return actor->buffer[actor->next_page++];
-}
-
-static void cache_finish_page(struct squashfs_page_actor *actor)
-{
-	/* empty */
-}
-
-struct squashfs_page_actor *squashfs_page_actor_init(void **buffer,
-	int pages, int length)
+struct squashfs_page_actor *squashfs_page_actor_init(struct page **page,
+	int pages, int length, void (*release_pages)(struct page **, int, int))
 {
 	struct squashfs_page_actor *actor = kmalloc(sizeof(*actor), GFP_KERNEL);
 

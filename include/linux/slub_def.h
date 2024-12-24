@@ -105,6 +105,7 @@ struct kmem_cache {
 	unsigned int red_left_pad;	/* Left redzone padding size */
 	const char *name;	/* Name (only for display!) */
 	struct list_head list;	/* List of slab caches */
+	int red_left_pad;	/* Left redzone padding size */
 #ifdef CONFIG_SYSFS
 	struct kobject kobj;	/* For sysfs */
 	struct work_struct kobj_remove_work;
@@ -177,6 +178,17 @@ static inline void *nearest_obj(struct kmem_cache *cache, struct page *page,
 
 	result = fixup_red_left(cache, result);
 	return result;
+}
+
+static inline void *nearest_obj(struct kmem_cache *cache, struct page *page,
+				void *x) {
+	void *object = x - (x - page_address(page)) % cache->size;
+	void *last_object = page_address(page) +
+		(page->objects - 1) * cache->size;
+	if (unlikely(object > last_object))
+		return last_object;
+	else
+		return object;
 }
 
 #endif /* _LINUX_SLUB_DEF_H */

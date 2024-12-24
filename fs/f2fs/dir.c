@@ -758,7 +758,7 @@ bool f2fs_empty_dir(struct inode *dir)
 		return f2fs_empty_inline_dir(dir);
 
 	for (bidx = 0; bidx < nblock; bidx++) {
-		dentry_page = get_lock_data_page(dir, bidx, false);
+		dentry_page = f2fs_get_lock_data_page(dir, bidx, false);
 		if (IS_ERR(dentry_page)) {
 			if (PTR_ERR(dentry_page) == -ENOENT)
 				continue;

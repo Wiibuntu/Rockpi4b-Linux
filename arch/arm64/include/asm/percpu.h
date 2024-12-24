@@ -22,6 +22,8 @@
 #include <asm/cmpxchg.h>
 #include <asm/stack_pointer.h>
 
+#include <asm/stack_pointer.h>
+
 static inline void set_my_cpu_offset(unsigned long off)
 {
 	asm volatile(ALTERNATIVE("msr tpidr_el1, %0",
@@ -125,6 +127,7 @@ static inline unsigned long __percpu_read(void *ptr, int size)
 		ret = READ_ONCE(*(u64 *)ptr);
 		break;
 	default:
+		ret = 0;
 		BUILD_BUG();
 	}
 

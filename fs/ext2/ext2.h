@@ -64,6 +64,8 @@ struct ext2_block_alloc_info {
 
 struct mb_cache;
 
+struct mb2_cache;
+
 /*
  * second extended-fs super-block data in memory
  */

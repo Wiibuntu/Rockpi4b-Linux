@@ -591,6 +591,12 @@ static void dwc2_init_isoc_dma_desc(struct dwc2_hsotg *hsotg,
 	cur_idx = dwc2_frame_list_idx(hsotg->frame_number);
 	next_idx = dwc2_desclist_idx_inc(qh->td_last, inc, qh->dev_speed);
 
+	dma_sync_single_for_device(hsotg->dev,
+				   qh->desc_list_dma +
+				   (n_desc * sizeof(struct dwc2_hcd_dma_desc)),
+				   sizeof(struct dwc2_hcd_dma_desc),
+				   DMA_TO_DEVICE);
+
 	/*
 	 * Ensure current frame number didn't overstep last scheduled
 	 * descriptor. If it happens, the only way to recover is to move
@@ -908,6 +914,13 @@ static int dwc2_cmpl_host_isoc_dma_desc(struct dwc2_hsotg *hsotg,
 
 	dma_desc = &qh->desc_list[idx];
 
+	dma_sync_single_for_cpu(hsotg->dev, qh->desc_list_dma + (idx *
+				sizeof(struct dwc2_hcd_dma_desc)),
+				sizeof(struct dwc2_hcd_dma_desc),
+				DMA_FROM_DEVICE);
+
+	dma_desc = &qh->desc_list[idx];
+
 	frame_desc = &qtd->urb->iso_descs[qtd->isoc_frame_index_last];
 	dma_desc->buf = (u32)(qtd->urb->dma + frame_desc->offset);
 	if (chan->ep_is_in)
@@ -1167,6 +1180,12 @@ static int dwc2_process_non_isoc_desc(struct dwc2_hsotg *hsotg,
 				qh->desc_list_dma + (desc_num *
 				sizeof(struct dwc2_dma_desc)),
 				sizeof(struct dwc2_dma_desc),
+				DMA_FROM_DEVICE);
+
+	dma_sync_single_for_cpu(hsotg->dev,
+				qh->desc_list_dma + (desc_num *
+				sizeof(struct dwc2_hcd_dma_desc)),
+				sizeof(struct dwc2_hcd_dma_desc),
 				DMA_FROM_DEVICE);
 
 	dma_desc = &qh->desc_list[desc_num];

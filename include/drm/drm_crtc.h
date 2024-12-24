@@ -263,6 +263,22 @@ struct drm_crtc_state {
 	struct drm_crtc_commit *commit;
 
 	struct drm_atomic_state *state;
+
+	/**
+	 * @content_protection: Connector property to request content
+	 * protection. This is most commonly used for HDCP.
+	 */
+	unsigned int content_protection;
+
+	struct drm_tv_connector_state tv;
+
+	/**
+	 * @metadata_blob_ptr:
+	 * DRM blob property for HDR metadata
+	 */
+	struct drm_property_blob *hdr_source_metadata_blob_ptr;
+	bool hdr_metadata_changed : 1;
+	uint64_t blob_id;
 };
 
 /**
@@ -713,6 +729,111 @@ struct drm_crtc_funcs {
 	 * new drivers as the replacement of &drm_driver.disable_vblank hook.
 	 */
 	void (*disable_vblank)(struct drm_crtc *crtc);
+};
+
+/**
+ * struct drm_crtc_commit - track modeset commits on a CRTC
+ *
+ * This structure is used to track pending modeset changes and atomic commit on
+ * a per-CRTC basis. Since updating the list should never block this structure
+ * is reference counted to allow waiters to safely wait on an event to complete,
+ * without holding any locks.
+ *
+ * It has 3 different events in total to allow a fine-grained synchronization
+ * between outstanding updates::
+ *
+ *	atomic commit thread			hardware
+ *
+ * 	write new state into hardware	---->	...
+ * 	signal hw_done
+ * 						switch to new state on next
+ * 	...					v/hblank
+ *
+ *	wait for buffers to show up		...
+ *
+ *	...					send completion irq
+ *						irq handler signals flip_done
+ *	cleanup old buffers
+ *
+ * 	signal cleanup_done
+ *
+ * 	wait for flip_done		<----
+ * 	clean up atomic state
+ *
+ * The important bit to know is that cleanup_done is the terminal event, but the
+ * ordering between flip_done and hw_done is entirely up to the specific driver
+ * and modeset state change.
+ *
+ * For an implementation of how to use this look at
+ * drm_atomic_helper_setup_commit() from the atomic helper library.
+ */
+struct drm_crtc_commit {
+	/**
+	 * @crtc:
+	 *
+	 * DRM CRTC for this commit.
+	 */
+	struct drm_crtc *crtc;
+
+	/**
+	 * @ref:
+	 *
+	 * Reference count for this structure. Needed to allow blocking on
+	 * completions without the risk of the completion disappearing
+	 * meanwhile.
+	 */
+	struct kref ref;
+
+	/**
+	 * @flip_done:
+	 *
+	 * Will be signaled when the hardware has flipped to the new set of
+	 * buffers. Signals at the same time as when the drm event for this
+	 * commit is sent to userspace, or when an out-fence is singalled. Note
+	 * that for most hardware, in most cases this happens after @hw_done is
+	 * signalled.
+	 */
+	struct completion flip_done;
+
+	/**
+	 * @hw_done:
+	 *
+	 * Will be signalled when all hw register changes for this commit have
+	 * been written out. Especially when disabling a pipe this can be much
+	 * later than than @flip_done, since that can signal already when the
+	 * screen goes black, whereas to fully shut down a pipe more register
+	 * I/O is required.
+	 *
+	 * Note that this does not need to include separately reference-counted
+	 * resources like backing storage buffer pinning, or runtime pm
+	 * management.
+	 */
+	struct completion hw_done;
+
+	/**
+	 * @cleanup_done:
+	 *
+	 * Will be signalled after old buffers have been cleaned up by calling
+	 * drm_atomic_helper_cleanup_planes(). Since this can only happen after
+	 * a vblank wait completed it might be a bit later. This completion is
+	 * useful to throttle updates and avoid hardware updates getting ahead
+	 * of the buffer cleanup too much.
+	 */
+	struct completion cleanup_done;
+
+	/**
+	 * @commit_entry:
+	 *
+	 * Entry on the per-CRTC commit_list. Protected by crtc->commit_lock.
+	 */
+	struct list_head commit_entry;
+
+	/**
+	 * @event:
+	 *
+	 * &drm_pending_vblank_event pointer to clean up private events.
+	 */
+	struct drm_pending_vblank_event *event;
 };
 
 /**

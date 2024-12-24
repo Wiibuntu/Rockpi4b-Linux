@@ -72,6 +72,7 @@ void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu);
 
 phys_addr_t kvm_mmu_get_httbr(void);
 phys_addr_t kvm_get_idmap_vector(void);
+phys_addr_t kvm_get_idmap_start(void);
 int kvm_mmu_init(void);
 void kvm_clear_hyp_idmap(void);
 
@@ -336,6 +337,11 @@ static inline int kvm_map_vectors(void)
 }
 
 #define kvm_phys_to_vttbr(addr)		(addr)
+
+static inline unsigned int kvm_get_vmid_bits(void)
+{
+	return 8;
+}
 
 #endif	/* !__ASSEMBLY__ */
 

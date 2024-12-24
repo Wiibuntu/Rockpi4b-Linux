@@ -2089,7 +2089,9 @@ struct rt5651_priv {
 	int pll_out;
 
 	int dmic_en;
+	int asrc_en;
 	bool hp_mute;
+	struct clk *mclk;
 };
 
 #endif /* __RT5651_H__ */

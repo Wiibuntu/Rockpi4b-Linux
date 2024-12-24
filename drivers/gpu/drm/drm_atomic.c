@@ -85,6 +85,10 @@ drm_atomic_state_init(struct drm_device *dev, struct drm_atomic_state *state)
 			       sizeof(*state->crtcs), GFP_KERNEL);
 	if (!state->crtcs)
 		goto fail;
+	state->crtc_commits = kcalloc(dev->mode_config.num_crtc,
+				     sizeof(*state->crtc_commits), GFP_KERNEL);
+	if (!state->crtc_commits)
+		goto fail;
 	state->planes = kcalloc(dev->mode_config.num_total_plane,
 				sizeof(*state->planes), GFP_KERNEL);
 	if (!state->planes)
@@ -148,7 +152,7 @@ void drm_atomic_state_default_clear(struct drm_atomic_state *state)
 	for (i = 0; i < state->num_connector; i++) {
 		struct drm_connector *connector = state->connectors[i].ptr;
 
-		if (!connector)
+		if (!connector || !connector->funcs)
 			continue;
 
 		connector->funcs->atomic_destroy_state(connector,
@@ -362,7 +366,6 @@ int drm_atomic_set_mode_for_crtc(struct drm_crtc_state *state,
 		DRM_DEBUG_ATOMIC("Set [MODE:%s] for CRTC state %p\n",
 				 mode->name, state);
 	} else {
-		memset(&state->mode, 0, sizeof(state->mode));
 		state->enable = false;
 		DRM_DEBUG_ATOMIC("Set [NOMODE] for CRTC state %p\n",
 				 state);
@@ -371,6 +374,59 @@ int drm_atomic_set_mode_for_crtc(struct drm_crtc_state *state,
 	return 0;
 }
 EXPORT_SYMBOL(drm_atomic_set_mode_for_crtc);
+
+/**
+ * drm_atomic_replace_property_blob - replace a blob property
+ * @blob: a pointer to the member blob to be replaced
+ * @new_blob: the new blob to replace with
+ * @expected_size: the expected size of the new blob
+ * @replaced: whether the blob has been replaced
+ *
+ * RETURNS:
+ * Zero on success, error code on failure
+ */
+static void
+drm_atomic_replace_property_blob(struct drm_property_blob **blob,
+				 struct drm_property_blob *new_blob,
+				 bool *replaced)
+{
+	struct drm_property_blob *old_blob = *blob;
+
+	if (old_blob == new_blob)
+		return;
+
+	if (old_blob)
+		drm_property_unreference_blob(old_blob);
+	if (new_blob)
+		drm_property_reference_blob(new_blob);
+	*blob = new_blob;
+	*replaced = true;
+
+	return;
+}
+
+int
+drm_atomic_replace_property_blob_from_id(struct drm_device *dev,
+					 struct drm_property_blob **blob,
+					 uint64_t blob_id,
+					 ssize_t expected_size,
+					 bool *replaced)
+{
+	struct drm_property_blob *new_blob = NULL;
+
+	if (blob_id != 0) {
+		new_blob = drm_property_lookup_blob(dev, blob_id);
+		if (new_blob == NULL)
+			return -EINVAL;
+		if (expected_size > 0 && expected_size != new_blob->length)
+			return -EINVAL;
+	}
+
+	drm_atomic_replace_property_blob(blob, new_blob, replaced);
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_atomic_replace_property_blob_from_id);
 
 /**
  * drm_atomic_set_mode_prop_for_crtc - set mode for CRTC
@@ -1224,6 +1280,8 @@ static int drm_atomic_connector_set_property(struct drm_connector *connector,
 {
 	struct drm_device *dev = connector->dev;
 	struct drm_mode_config *config = &dev->mode_config;
+	bool replaced = false;
+	int ret;
 
 	if (property == config->prop_crtc_id) {
 		struct drm_crtc *crtc = drm_crtc_find(dev, NULL, val);
@@ -1429,7 +1487,9 @@ drm_atomic_set_crtc_for_plane(struct drm_plane_state *plane_state,
 {
 	struct drm_plane *plane = plane_state->plane;
 	struct drm_crtc_state *crtc_state;
-
+	/* Nothing to do for same crtc*/
+	if (plane_state->crtc == crtc)
+		return 0;
 	if (plane_state->crtc) {
 		crtc_state = drm_atomic_get_crtc_state(plane_state->state,
 						       plane_state->crtc);
@@ -1712,6 +1772,9 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
 
 	if (config->funcs->atomic_check)
 		ret = config->funcs->atomic_check(state->dev, state);
+
+	if (ret)
+		return ret;
 
 	if (ret)
 		return ret;
@@ -2443,5 +2506,5 @@ out:
 	drm_modeset_drop_locks(&ctx);
 	drm_modeset_acquire_fini(&ctx);
 
-	return ret;
+	return 0;
 }

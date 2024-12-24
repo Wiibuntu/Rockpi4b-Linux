@@ -1,0 +1,10 @@
+--- fs/gfs2/rgrp.c
++++ fs/gfs2/rgrp.c
+@@ -732,6 +732,7 @@ void gfs2_clear_rgrpd(struct gfs2_sbd *sdp)
+ 			spin_lock(&gl->gl_lockref.lock);
+ 			gl->gl_object = NULL;
+ 			spin_unlock(&gl->gl_lockref.lock);
++			gfs2_rgrp_brelse(rgd);
+ 			gfs2_glock_add_to_lru(gl);
+ 			gfs2_glock_put(gl);
+ 		}

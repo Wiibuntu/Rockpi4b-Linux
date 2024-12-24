@@ -40,6 +40,7 @@
 #include <linux/ramfs.h>
 #include <linux/percpu-refcount.h>
 #include <linux/mount.h>
+#include <linux/nospec.h>
 
 #include <asm/kmap_types.h>
 #include <linux/uaccess.h>
@@ -604,6 +605,14 @@ static void free_ioctx(struct work_struct *work)
 	percpu_ref_exit(&ctx->reqs);
 	percpu_ref_exit(&ctx->users);
 	kmem_cache_free(kioctx_cachep, ctx);
+}
+
+static void free_ioctx_rcufn(struct rcu_head *head)
+{
+	struct kioctx *ctx = container_of(head, struct kioctx, free_rcu);
+
+	INIT_WORK(&ctx->free_work, free_ioctx);
+	schedule_work(&ctx->free_work);
 }
 
 static void free_ioctx_reqs(struct percpu_ref *ref)

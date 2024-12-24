@@ -470,7 +470,11 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 static struct console pstore_console = {
 	.name	= "pstore",
 	.write	= pstore_console_write,
+#ifdef CON_PSTORE
+	.flags	= CON_PRINTBUFFER | CON_ENABLED | CON_ANYTIME | CON_PSTORE,
+#else
 	.flags	= CON_PRINTBUFFER | CON_ENABLED | CON_ANYTIME,
+#endif
 	.index	= -1,
 };
 
@@ -509,6 +513,40 @@ out:
 	record->buf = NULL;
 
 	return unlikely(ret < 0) ? ret : record->size;
+}
+
+static int pstore_write_buf_user_compat(enum pstore_type_id type,
+			       enum kmsg_dump_reason reason,
+			       u64 *id, unsigned int part,
+			       const char __user *buf,
+			       bool compressed, size_t size,
+			       struct pstore_info *psi)
+{
+	unsigned long flags = 0;
+	size_t i, bufsize = size;
+	long ret = 0;
+
+	if (unlikely(!access_ok(VERIFY_READ, buf, size)))
+		return -EFAULT;
+	if (bufsize > psinfo->bufsize)
+		bufsize = psinfo->bufsize;
+	spin_lock_irqsave(&psinfo->buf_lock, flags);
+	for (i = 0; i < size; ) {
+		size_t c = min(size - i, bufsize);
+
+		ret = __copy_from_user(psinfo->buf, buf + i, c);
+		if (unlikely(ret != 0)) {
+			ret = -EFAULT;
+			break;
+		}
+		ret = psi->write_buf(type, reason, id, part, psinfo->buf,
+				     compressed, c, psi);
+		if (unlikely(ret < 0))
+			break;
+		i += c;
+	}
+	spin_unlock_irqrestore(&psinfo->buf_lock, flags);
+	return unlikely(ret < 0) ? ret : size;
 }
 
 /*

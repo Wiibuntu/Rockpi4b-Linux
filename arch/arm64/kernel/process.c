@@ -150,6 +150,8 @@ void machine_restart(char *cmd)
 	local_irq_disable();
 	smp_send_stop();
 
+	do_kernel_i2c_restart(cmd);
+
 	/*
 	 * UpdateCapsule() depends on the system being reset via
 	 * ResetSystem().
@@ -201,6 +203,70 @@ static void print_pstate(struct pt_regs *regs)
 			pstate & PSR_PAN_BIT ? '+' : '-',
 			pstate & PSR_UAO_BIT ? '+' : '-');
 	}
+}
+
+/*
+ * dump a block of kernel memory from around the given address
+ */
+static void show_data(unsigned long addr, int nbytes, const char *name)
+{
+	int	i, j;
+	int	nlines;
+	u32	*p;
+
+	/*
+	 * don't attempt to dump non-kernel addresses or
+	 * values that are probably just small negative numbers
+	 */
+	if (addr < VA_START || addr > -256UL)
+		return;
+
+	printk("\n%s: %#lx:\n", name, addr);
+
+	/*
+	 * round address down to a 32 bit boundary
+	 * and always dump a multiple of 32 bytes
+	 */
+	p = (u32 *)(addr & ~(sizeof(u32) - 1));
+	nbytes += (addr & (sizeof(u32) - 1));
+	nlines = (nbytes + 31) / 32;
+
+
+	for (i = 0; i < nlines; i++) {
+		/*
+		 * just display low 16 bits of address to keep
+		 * each line of the dump < 80 characters
+		 */
+		printk("%04lx ", (unsigned long)p & 0xffff);
+		for (j = 0; j < 8; j++) {
+			u32	data;
+			if (probe_kernel_address(p, data)) {
+				printk(" ********");
+			} else {
+				printk(" %08x", data);
+			}
+			++p;
+		}
+		printk("\n");
+	}
+}
+
+static void show_extra_register_data(struct pt_regs *regs, int nbytes)
+{
+	mm_segment_t fs;
+	unsigned int i;
+
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+	show_data(regs->pc - nbytes, nbytes * 2, "PC");
+	show_data(regs->regs[30] - nbytes, nbytes * 2, "LR");
+	show_data(regs->sp - nbytes, nbytes * 2, "SP");
+	for (i = 0; i < 30; i++) {
+		char name[4];
+		snprintf(name, sizeof(name), "X%u", i);
+		show_data(regs->regs[i] - nbytes, nbytes * 2, name);
+	}
+	set_fs(fs);
 }
 
 void __show_regs(struct pt_regs *regs)
@@ -319,6 +385,15 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	 */
 	clear_tsk_thread_flag(p, TIF_SVE);
 	p->thread.sve_state = NULL;
+
+	/*
+	 * In case p was allocated the same task_struct pointer as some
+	 * other recently-exited task, make sure p is disassociated from
+	 * any cpu that may have run that now-exited task recently.
+	 * Otherwise we could erroneously skip reloading the FPSIMD
+	 * registers for p.
+	 */
+	fpsimd_flush_task_state(p);
 
 	/*
 	 * In case p was allocated the same task_struct pointer as some

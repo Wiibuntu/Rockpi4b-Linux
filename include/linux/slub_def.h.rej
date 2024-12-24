@@ -1,0 +1,24 @@
+--- include/linux/slub_def.h
++++ include/linux/slub_def.h
+@@ -67,7 +67,8 @@ struct kmem_cache {
+ 	int size;		/* The size of an object including meta data */
+ 	int object_size;	/* The size of an object without meta data */
+ 	int offset;		/* Free pointer offset. */
+-	int cpu_partial;	/* Number of per cpu partial objects to keep around */
++	/* Number of per cpu partial objects to keep around */
++	unsigned int cpu_partial;
+ 	struct kmem_cache_order_objects oo;
+ 
+ 	/* Allocation and freeing of slabs */
+@@ -99,6 +101,11 @@ struct kmem_cache {
+ 	 */
+ 	int remote_node_defrag_ratio;
+ #endif
++
++#ifdef CONFIG_KASAN
++	struct kasan_cache kasan_info;
++#endif
++
+ 	struct kmem_cache_node *node[MAX_NUMNODES];
+ };
+ 

@@ -25,6 +25,8 @@
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 #include <linux/math64.h>
+#include <linux/reboot.h>
+#include <linux/delay.h>
 
 
 /* Register Map */
@@ -57,6 +59,12 @@ enum {
 #define REG_CON_STOP      BIT(4)
 #define REG_CON_LASTACK   BIT(5) /* 1: send NACK after last received byte */
 #define REG_CON_ACTACK    BIT(6) /* 1: stop if NACK is received */
+
+#define REG_CON_TUNING_MASK GENMASK_ULL(15, 8)
+
+#define REG_CON_SDA_CFG(cfg) ((cfg) << 8)
+#define REG_CON_STA_CFG(cfg) ((cfg) << 12)
+#define REG_CON_STO_CFG(cfg) ((cfg) << 14)
 
 #define REG_CON_TUNING_MASK GENMASK_ULL(15, 8)
 
@@ -483,7 +491,9 @@ static irqreturn_t rk3x_i2c_irq(int irqno, void *dev_id)
 
 	ipd = i2c_readl(i2c, REG_IPD);
 	if (i2c->state == STATE_IDLE) {
-		dev_warn(i2c->dev, "irq in STATE_IDLE, ipd = 0x%x\n", ipd);
+		dev_warn_ratelimited(i2c->dev,
+				     "irq in STATE_IDLE, ipd = 0x%x\n",
+				     ipd);
 		rk3x_i2c_clean_ipd(i2c);
 		goto out;
 	}
@@ -503,8 +513,10 @@ static irqreturn_t rk3x_i2c_irq(int irqno, void *dev_id)
 
 		ipd &= ~REG_INT_NAKRCV;
 
-		if (!(i2c->msg->flags & I2C_M_IGNORE_NAK))
+		if (!(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
 			rk3x_i2c_stop(i2c, -ENXIO);
+			goto out;
+		}
 	}
 
 	/* is there anything left to handle? */
@@ -1074,9 +1086,9 @@ static int rk3x_i2c_xfer(struct i2c_adapter *adap,
 		if (i + ret >= num)
 			i2c->is_last_msg = true;
 
-		spin_unlock_irqrestore(&i2c->lock, flags);
-
 		rk3x_i2c_start(i2c);
+
+		spin_unlock_irqrestore(&i2c->lock, flags);
 
 		timeout = wait_event_timeout(i2c->wait, !i2c->busy,
 					     msecs_to_jiffies(WAIT_TIMEOUT));

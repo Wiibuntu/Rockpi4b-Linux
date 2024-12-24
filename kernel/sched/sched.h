@@ -549,6 +549,10 @@ struct cfs_rq {
 	struct list_head	leaf_cfs_rq_list;
 	struct task_group	*tg;	/* group that "owns" this runqueue */
 
+#ifdef CONFIG_SCHED_WALT
+	u64 cumulative_runnable_avg;
+#endif
+
 #ifdef CONFIG_CFS_BANDWIDTH
 	int			runtime_enabled;
 	u64			runtime_expires;
@@ -658,6 +662,9 @@ struct dl_rq {
 	 */
 	u64			this_bw;
 	u64			extra_bw;
+
+	/* Indicate one or more cpus over-utilized (tipping point) */
+	bool overutilized;
 
 	/*
 	 * Inverse of the fraction of CPU utilization that can be reclaimed
@@ -834,6 +841,20 @@ struct rq {
 	/* This is used to determine avg_idle's max value */
 	u64			max_idle_balance_cost;
 #endif
+
+#ifdef CONFIG_SCHED_WALT
+	u64 cumulative_runnable_avg;
+	u64 window_start;
+	u64 curr_runnable_sum;
+	u64 prev_runnable_sum;
+	u64 nt_curr_runnable_sum;
+	u64 nt_prev_runnable_sum;
+	u64 cur_irqload;
+	u64 avg_irqload;
+	u64 irqload_ts;
+	u64 cum_window_demand;
+#endif /* CONFIG_SCHED_WALT */
+
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 	u64			prev_irq_time;
@@ -1147,6 +1168,8 @@ DECLARE_PER_CPU(int, sd_llc_id);
 DECLARE_PER_CPU(struct sched_domain_shared *, sd_llc_shared);
 DECLARE_PER_CPU(struct sched_domain *, sd_numa);
 DECLARE_PER_CPU(struct sched_domain *, sd_asym);
+DECLARE_PER_CPU(struct sched_domain *, sd_ea);
+DECLARE_PER_CPU(struct sched_domain *, sd_scs);
 
 struct sched_group_capacity {
 	atomic_t		ref;
@@ -1484,7 +1507,8 @@ struct sched_class {
 	void (*put_prev_task)(struct rq *rq, struct task_struct *p);
 
 #ifdef CONFIG_SMP
-	int  (*select_task_rq)(struct task_struct *p, int task_cpu, int sd_flag, int flags);
+	int  (*select_task_rq)(struct task_struct *p, int task_cpu, int sd_flag, int flags,
+			       int subling_count_hint);
 	void (*migrate_task_rq)(struct task_struct *p);
 
 	void (*task_woken)(struct rq *this_rq, struct task_struct *task);
@@ -1551,6 +1575,7 @@ extern const struct sched_class idle_sched_class;
 
 #ifdef CONFIG_SMP
 
+extern void init_max_cpu_capacity(struct max_cpu_capacity *mcc);
 extern void update_group_capacity(struct sched_domain *sd, int cpu);
 
 extern void trigger_load_balance(struct rq *rq);
@@ -1571,6 +1596,17 @@ static inline struct cpuidle_state *idle_get_state(struct rq *rq)
 	SCHED_WARN_ON(!rcu_read_lock_held());
 
 	return rq->idle_state;
+}
+
+static inline void idle_set_state_idx(struct rq *rq, int idle_state_idx)
+{
+	rq->idle_state_idx = idle_state_idx;
+}
+
+static inline int idle_get_state_idx(struct rq *rq)
+{
+	WARN_ON(!rcu_read_lock_held());
+	return rq->idle_state_idx;
 }
 #else
 static inline void idle_set_state(struct rq *rq,
@@ -1601,6 +1637,7 @@ extern void resched_cpu(int cpu);
 
 extern struct rt_bandwidth def_rt_bandwidth;
 extern void init_rt_bandwidth(struct rt_bandwidth *rt_b, u64 period, u64 runtime);
+extern void init_rt_schedtune_timer(struct sched_rt_entity *rt_se);
 
 extern struct dl_bandwidth def_dl_bandwidth;
 extern void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime);
@@ -1832,6 +1869,9 @@ rq_unlock(struct rq *rq, struct rq_flags *rf)
 	raw_spin_unlock(&rq->lock);
 }
 
+extern struct rq *lock_rq_of(struct task_struct *p, unsigned long *flags);
+extern void unlock_rq_of(struct rq *rq, struct task_struct *p, unsigned long *flags);
+
 #ifdef CONFIG_SMP
 #ifdef CONFIG_PREEMPT
 
@@ -1904,7 +1944,8 @@ static inline int double_lock_balance(struct rq *this_rq, struct rq *busiest)
 static inline void double_unlock_balance(struct rq *this_rq, struct rq *busiest)
 	__releases(busiest->lock)
 {
-	raw_spin_unlock(&busiest->lock);
+	if (this_rq != busiest)
+		raw_spin_unlock(&busiest->lock);
 	lock_set_subclass(&this_rq->lock.dep_map, 0, _RET_IP_);
 }
 

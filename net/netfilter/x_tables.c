@@ -216,6 +216,9 @@ xt_request_find_match(uint8_t nfproto, const char *name, uint8_t revision)
 	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) == XT_EXTENSION_MAXNAMELEN)
 		return ERR_PTR(-EINVAL);
 
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) == XT_EXTENSION_MAXNAMELEN)
+		return ERR_PTR(-EINVAL);
+
 	match = xt_find_match(nfproto, name, revision);
 	if (IS_ERR(match)) {
 		request_module("%st_%s", xt_prefix[nfproto], name);
@@ -260,6 +263,9 @@ EXPORT_SYMBOL(xt_find_target);
 struct xt_target *xt_request_find_target(u8 af, const char *name, u8 revision)
 {
 	struct xt_target *target;
+
+	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) == XT_EXTENSION_MAXNAMELEN)
+		return ERR_PTR(-EINVAL);
 
 	if (strnlen(name, XT_EXTENSION_MAXNAMELEN) == XT_EXTENSION_MAXNAMELEN)
 		return ERR_PTR(-EINVAL);
@@ -429,6 +435,36 @@ textify_hooks(char *buf, size_t size, unsigned int mask, uint8_t nfproto)
 
 	return buf;
 }
+
+/**
+ * xt_check_proc_name - check that name is suitable for /proc file creation
+ *
+ * @name: file name candidate
+ * @size: length of buffer
+ *
+ * some x_tables modules wish to create a file in /proc.
+ * This function makes sure that the name is suitable for this
+ * purpose, it checks that name is NUL terminated and isn't a 'special'
+ * name, like "..".
+ *
+ * returns negative number on error or 0 if name is useable.
+ */
+int xt_check_proc_name(const char *name, unsigned int size)
+{
+	if (name[0] == '\0')
+		return -EINVAL;
+
+	if (strnlen(name, size) == size)
+		return -ENAMETOOLONG;
+
+	if (strcmp(name, ".") == 0 ||
+	    strcmp(name, "..") == 0 ||
+	    strchr(name, '/'))
+		return -EINVAL;
+
+	return 0;
+}
+EXPORT_SYMBOL(xt_check_proc_name);
 
 /**
  * xt_check_proc_name - check that name is suitable for /proc file creation
@@ -642,6 +678,47 @@ static bool error_tg_ok(unsigned int usersize, unsigned int kernsize,
 			const char *msg, unsigned int msglen)
 {
 	return usersize == kernsize && strnlen(msg, msglen) < msglen;
+}
+
+/** xt_check_entry_match - check that matches end before start of target
+ *
+ * @match: beginning of xt_entry_match
+ * @target: beginning of this rules target (alleged end of matches)
+ * @alignment: alignment requirement of match structures
+ *
+ * Validates that all matches add up to the beginning of the target,
+ * and that each match covers at least the base structure size.
+ *
+ * Return: 0 on success, negative errno on failure.
+ */
+static int xt_check_entry_match(const char *match, const char *target,
+				const size_t alignment)
+{
+	const struct xt_entry_match *pos;
+	int length = target - match;
+
+	if (length == 0) /* no matches */
+		return 0;
+
+	pos = (struct xt_entry_match *)match;
+	do {
+		if ((unsigned long)pos % alignment)
+			return -EINVAL;
+
+		if (length < (int)sizeof(struct xt_entry_match))
+			return -EINVAL;
+
+		if (pos->u.match_size < sizeof(struct xt_entry_match))
+			return -EINVAL;
+
+		if (pos->u.match_size > length)
+			return -EINVAL;
+
+		length -= pos->u.match_size;
+		pos = ((void *)((char *)(pos) + (pos)->u.match_size));
+	} while (length > 0);
+
+	return 0;
 }
 
 #ifdef CONFIG_COMPAT
@@ -1058,6 +1135,80 @@ void *xt_copy_counters_from_user(const void __user *user, unsigned int len,
 {
 	void *mem;
 	u64 size;
+
+/**
+ * xt_copy_counters_from_user - copy counters and metadata from userspace
+ *
+ * @user: src pointer to userspace memory
+ * @len: alleged size of userspace memory
+ * @info: where to store the xt_counters_info metadata
+ * @compat: true if we setsockopt call is done by 32bit task on 64bit kernel
+ *
+ * Copies counter meta data from @user and stores it in @info.
+ *
+ * vmallocs memory to hold the counters, then copies the counter data
+ * from @user to the new memory and returns a pointer to it.
+ *
+ * If @compat is true, @info gets converted automatically to the 64bit
+ * representation.
+ *
+ * The metadata associated with the counters is stored in @info.
+ *
+ * Return: returns pointer that caller has to test via IS_ERR().
+ * If IS_ERR is false, caller has to vfree the pointer.
+ */
+void *xt_copy_counters_from_user(const void __user *user, unsigned int len,
+				 struct xt_counters_info *info, bool compat)
+{
+	void *mem;
+	u64 size;
+
+#ifdef CONFIG_COMPAT
+	if (compat) {
+		/* structures only differ in size due to alignment */
+		struct compat_xt_counters_info compat_tmp;
+
+		if (len <= sizeof(compat_tmp))
+			return ERR_PTR(-EINVAL);
+
+		len -= sizeof(compat_tmp);
+		if (copy_from_user(&compat_tmp, user, sizeof(compat_tmp)) != 0)
+			return ERR_PTR(-EFAULT);
+
+		memcpy(info->name, compat_tmp.name, sizeof(info->name) - 1);
+		info->num_counters = compat_tmp.num_counters;
+		user += sizeof(compat_tmp);
+	} else
+#endif
+	{
+		if (len <= sizeof(*info))
+			return ERR_PTR(-EINVAL);
+
+		len -= sizeof(*info);
+		if (copy_from_user(info, user, sizeof(*info)) != 0)
+			return ERR_PTR(-EFAULT);
+
+		user += sizeof(*info);
+	}
+	info->name[sizeof(info->name) - 1] = '\0';
+
+	size = sizeof(struct xt_counters);
+	size *= info->num_counters;
+
+	if (size != (u64)len)
+		return ERR_PTR(-EINVAL);
+
+	mem = vmalloc(len);
+	if (!mem)
+		return ERR_PTR(-ENOMEM);
+
+	if (copy_from_user(mem, user, len) == 0)
+		return mem;
+
+	vfree(mem);
+	return ERR_PTR(-EFAULT);
+}
+EXPORT_SYMBOL_GPL(xt_copy_counters_from_user);
 
 #ifdef CONFIG_COMPAT
 	if (compat) {
@@ -1893,6 +2044,59 @@ EXPORT_SYMBOL_GPL(xt_proto_fini);
  * allocated.  Freeing any counter may free an entire block, so all
  * counters allocated using the same state must be freed at the same
  * time.
+ *
+ * xt_percpu_counter_alloc_state contains the base address of the
+ * allocated page and the current sub-offset.
+ *
+ * returns false on error.
+ */
+bool xt_percpu_counter_alloc(struct xt_percpu_counter_alloc_state *state,
+			     struct xt_counters *counter)
+{
+	BUILD_BUG_ON(XT_PCPU_BLOCK_SIZE < (sizeof(*counter) * 2));
+
+	if (nr_cpu_ids <= 1)
+		return true;
+
+	if (!state->mem) {
+		state->mem = __alloc_percpu(XT_PCPU_BLOCK_SIZE,
+					    XT_PCPU_BLOCK_SIZE);
+		if (!state->mem)
+			return false;
+	}
+	counter->pcnt = (__force unsigned long)(state->mem + state->off);
+	state->off += sizeof(*counter);
+	if (state->off > (XT_PCPU_BLOCK_SIZE - sizeof(*counter))) {
+		state->mem = NULL;
+		state->off = 0;
+	}
+	return true;
+}
+EXPORT_SYMBOL_GPL(xt_percpu_counter_alloc);
+
+void xt_percpu_counter_free(struct xt_counters *counters)
+{
+	unsigned long pcnt = counters->pcnt;
+
+	if (nr_cpu_ids > 1 && (pcnt & (XT_PCPU_BLOCK_SIZE - 1)) == 0)
+		free_percpu((void __percpu *)pcnt);
+}
+EXPORT_SYMBOL_GPL(xt_percpu_counter_free);
+
+/**
+ * xt_percpu_counter_alloc - allocate x_tables rule counter
+ *
+ * @state: pointer to xt_percpu allocation state
+ * @counter: pointer to counter struct inside the ip(6)/arpt_entry struct
+ *
+ * On SMP, the packet counter [ ip(6)t_entry->counters.pcnt ] will then
+ * contain the address of the real (percpu) counter.
+ *
+ * Rule evaluation needs to use xt_get_this_cpu_counter() helper
+ * to fetch the real percpu counter.
+ *
+ * To speed up allocation and improve data locality, a 4kb block is
+ * allocated.
  *
  * xt_percpu_counter_alloc_state contains the base address of the
  * allocated page and the current sub-offset.

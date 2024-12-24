@@ -472,6 +472,8 @@ static void ieee80211_roc_work(struct work_struct *work)
 	struct ieee80211_local *local =
 		container_of(work, struct ieee80211_local, roc_work.work);
 
+	flush_work(&local->hw_roc_start);
+
 	mutex_lock(&local->mtx);
 	__ieee80211_roc_work(local);
 	mutex_unlock(&local->mtx);

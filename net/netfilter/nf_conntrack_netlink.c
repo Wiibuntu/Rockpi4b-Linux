@@ -3476,6 +3476,7 @@ err_unreg_notifier:
 err_out:
 	return ret;
 #endif
+	synchronize_rcu();
 }
 
 static void ctnetlink_net_exit(struct net *net)

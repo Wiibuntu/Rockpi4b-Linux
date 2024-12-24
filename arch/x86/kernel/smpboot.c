@@ -247,6 +247,8 @@ static void notrace start_secondary(void *unused)
 
 	speculative_store_bypass_ht_init();
 
+	speculative_store_bypass_ht_init();
+
 	/*
 	 * Lock vector_lock, set CPU online and bring the vector
 	 * allocator online. Online must be set with vector_lock held

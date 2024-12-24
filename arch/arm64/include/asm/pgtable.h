@@ -89,6 +89,7 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define pte_write(pte)		(!!(pte_val(pte) & PTE_WRITE))
 #define pte_user_exec(pte)	(!(pte_val(pte) & PTE_UXN))
 #define pte_cont(pte)		(!!(pte_val(pte) & PTE_CONT))
+#define pte_user(pte)		(!!(pte_val(pte) & PTE_USER))
 
 #define pte_cont_addr_end(addr, end)						\
 ({	unsigned long __boundary = ((addr) + CONT_PTE_SIZE) & CONT_PTE_MASK;	\
@@ -204,6 +205,21 @@ static inline pte_t pte_mkcont(pte_t pte)
 static inline pte_t pte_mknoncont(pte_t pte)
 {
 	return clear_pte_bit(pte, __pgprot(PTE_CONT));
+}
+
+static inline pte_t pte_mkpresent(pte_t pte)
+{
+	return set_pte_bit(pte, __pgprot(PTE_VALID));
+}
+
+static inline pmd_t pmd_mkcont(pmd_t pmd)
+{
+	return __pmd(pmd_val(pmd) | PMD_SECT_CONT);
+}
+
+static inline pte_t pte_clear_rdonly(pte_t pte)
+{
+	return clear_pte_bit(pte, __pgprot(PTE_RDONLY));
 }
 
 static inline pte_t pte_mkpresent(pte_t pte)

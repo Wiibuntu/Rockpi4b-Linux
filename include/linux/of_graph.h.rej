@@ -1,0 +1,24 @@
+--- include/linux/of_graph.h
++++ include/linux/of_graph.h
+@@ -50,6 +50,8 @@ struct device_node *of_graph_get_endpoint_by_regs(
+ struct device_node *of_graph_get_remote_port_parent(
+ 					const struct device_node *node);
+ struct device_node *of_graph_get_remote_port(const struct device_node *node);
++struct device_node *of_graph_get_remote_node(const struct device_node *node,
++					     u32 port, u32 endpoint);
+ #else
+ 
+ static inline int of_graph_parse_endpoint(const struct device_node *node,
+@@ -88,6 +90,12 @@ static inline struct device_node *of_graph_get_remote_port(
+ {
+ 	return NULL;
+ }
++static inline struct device_node *of_graph_get_remote_node(
++					const struct device_node *node,
++					u32 port, u32 endpoint)
++{
++	return NULL;
++}
+ 
+ #endif /* CONFIG_OF */
+ 

@@ -626,6 +626,7 @@ static int ovl_remove_and_whiteout(struct dentry *dentry,
 	struct dentry *upper;
 	struct dentry *opaquedir = NULL;
 	int err;
+	int flags = 0;
 
 	if (WARN_ON(!workdir))
 		return -EROFS;

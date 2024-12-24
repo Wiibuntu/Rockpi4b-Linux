@@ -287,6 +287,10 @@ static void init_translation_status(struct amd_iommu *iommu)
 		iommu->flags |= AMD_IOMMU_FLAG_TRANS_PRE_ENABLED;
 }
 
+static int iommu_pc_get_set_reg_val(struct amd_iommu *iommu,
+				    u8 bank, u8 cntr, u8 fxn,
+				    u64 *value, bool is_write);
+
 static inline void update_last_devid(u16 devid)
 {
 	if (devid > amd_iommu_last_bdf)
@@ -1435,6 +1439,34 @@ static void amd_iommu_erratum_746_workaround(struct amd_iommu *iommu)
 
 	/* Clear the enable writing bit */
 	pci_write_config_dword(iommu->dev, 0xf0, 0x90);
+}
+
+/*
+ * Family15h Model 30h-3fh (IOMMU Mishandles ATS Write Permission)
+ * Workaround:
+ *     BIOS should enable ATS write permission check by setting
+ *     L2_DEBUG_3[AtsIgnoreIWDis](D0F2xF4_x47[0]) = 1b
+ */
+static void amd_iommu_ats_write_check_workaround(struct amd_iommu *iommu)
+{
+	u32 value;
+
+	if ((boot_cpu_data.x86 != 0x15) ||
+	    (boot_cpu_data.x86_model < 0x30) ||
+	    (boot_cpu_data.x86_model > 0x3f))
+		return;
+
+	/* Test L2_DEBUG_3[AtsIgnoreIWDis] == 1 */
+	value = iommu_read_l2(iommu, 0x47);
+
+	if (value & BIT(0))
+		return;
+
+	/* Set L2_DEBUG_3[AtsIgnoreIWDis] = 1 */
+	iommu_write_l2(iommu, 0x47, value | BIT(0));
+
+	pr_info("AMD-Vi: Applying ATS write check workaround for IOMMU at %s\n",
+		dev_name(&iommu->dev->dev));
 }
 
 /*

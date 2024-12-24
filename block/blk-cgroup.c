@@ -823,6 +823,7 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 	struct gendisk *disk;
 	struct request_queue *q;
 	struct blkcg_gq *blkg;
+	struct module *owner;
 	unsigned int major, minor;
 	int key_len, part, ret;
 	char *body;

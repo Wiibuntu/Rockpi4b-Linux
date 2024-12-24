@@ -179,8 +179,10 @@ static bool batadv_is_on_batman_iface(const struct net_device *net_dev)
 	parent_dev = __dev_get_by_index((struct net *)parent_net,
 					dev_get_iflink(net_dev));
 	/* if we got a NULL parent_dev there is something broken.. */
-	if (WARN(!parent_dev, "Cannot find parent device"))
+	if (!parent_dev) {
+		pr_err("Cannot find parent device\n");
 		return false;
+	}
 
 	if (batadv_mutual_parents(net_dev, net, parent_dev, parent_net))
 		return false;

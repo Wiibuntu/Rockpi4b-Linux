@@ -1195,6 +1195,14 @@ static inline struct pid *task_tgid(struct task_struct *task)
 	return task->group_leader->pids[PIDTYPE_PID].pid;
 }
 
+struct sched_capacity_reqs {
+	unsigned long cfs;
+	unsigned long rt;
+	unsigned long dl;
+
+	unsigned long total;
+};
+
 /*
  * Without tasklist or RCU lock it is not safe to dereference
  * the result of task_pgrp/task_session even if task == current,
@@ -1756,6 +1764,10 @@ static inline void set_task_cpu(struct task_struct *p, unsigned int cpu)
 #ifndef vcpu_is_preempted
 # define vcpu_is_preempted(cpu)	false
 #endif
+#ifdef CONFIG_CGROUPS
+	/* disallow userland-initiated cgroup migration */
+	unsigned no_cgroup_migration:1;
+#endif
 
 extern long sched_setaffinity(pid_t pid, const struct cpumask *new_mask);
 extern long sched_getaffinity(pid_t pid, struct cpumask *mask);
@@ -1763,5 +1775,20 @@ extern long sched_getaffinity(pid_t pid, struct cpumask *mask);
 #ifndef TASK_SIZE_OF
 #define TASK_SIZE_OF(tsk)	TASK_SIZE
 #endif
+
+#define SCHED_CPUFREQ_RT        (1U << 0)
+#define SCHED_CPUFREQ_DL        (1U << 1)
+#define SCHED_CPUFREQ_IOWAIT    (1U << 2)
+
+#ifdef CONFIG_CPU_FREQ
+struct update_util_data {
+	void (*func)(struct update_util_data *data, u64 time, unsigned int flags);
+};
+
+void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
+                       void (*func)(struct update_util_data *data, u64 time,
+                                    unsigned int flags));
+void cpufreq_remove_update_util_hook(int cpu);
+#endif /* CONFIG_CPU_FREQ */
 
 #endif

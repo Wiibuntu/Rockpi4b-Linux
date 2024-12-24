@@ -123,6 +123,15 @@ static void dwc2_hc_handle_tt_clear(struct dwc2_hsotg *hsotg,
 	if (usb_urb->dev->tt->hub == root_hub)
 		return;
 
+	/*
+	 * The root hub doesn't really have a TT, but Linux thinks it
+	 * does because how could you have a "high speed hub" that
+	 * directly talks directly to low speed devices without a TT?
+	 * It's all lies.  Lies, I tell you.
+	 */
+	if (usb_urb->dev->tt->hub == root_hub)
+		return;
+
 	if (qtd->urb->status != -EPIPE && qtd->urb->status != -EREMOTEIO) {
 		chan->qh->tt_buffer_dirty = 1;
 		if (usb_hub_clear_tt_buffer(usb_urb))
@@ -142,6 +151,9 @@ static void dwc2_sof_intr(struct dwc2_hsotg *hsotg)
 	struct list_head *qh_entry;
 	struct dwc2_qh *qh;
 	enum dwc2_transaction_type tr_type;
+
+	/* Clear interrupt */
+	dwc2_writel(GINTSTS_SOF, hsotg->regs + GINTSTS);
 
 	/* Clear interrupt */
 	dwc2_writel(GINTSTS_SOF, hsotg->regs + GINTSTS);

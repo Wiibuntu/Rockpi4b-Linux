@@ -452,6 +452,7 @@ static inline int neigh_hh_bridge(struct hh_cache *hh, struct sk_buff *skb)
 
 static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb)
 {
+	unsigned int hh_alen = 0;
 	unsigned int seq;
 	unsigned int hh_len;
 

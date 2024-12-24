@@ -205,6 +205,12 @@ cache_type_store(struct device *dev, struct device_attribute *attr,
 	sp = buffer_data[0] & 0x80 ? 1 : 0;
 	buffer_data[0] &= ~0x80;
 
+	/*
+	 * Ensure WP, DPOFUA, and RESERVED fields are cleared in
+	 * received mode parameter buffer before doing MODE SELECT.
+	 */
+	data.device_specific = 0;
+
 	if (scsi_mode_select(sdp, 1, sp, 8, buffer_data, len, SD_TIMEOUT,
 			     SD_MAX_RETRIES, &data, &sshdr)) {
 		if (scsi_sense_valid(&sshdr))
@@ -248,6 +254,7 @@ static DEVICE_ATTR_RW(manage_start_stop);
 static ssize_t
 allow_restart_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
+	bool v;
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 
 	return sprintf(buf, "%u\n", sdkp->device->allow_restart);
@@ -1398,11 +1405,6 @@ static void sd_release(struct gendisk *disk, fmode_t mode)
 			scsi_set_medium_removal(sdev, SCSI_REMOVAL_ALLOW);
 	}
 
-	/*
-	 * XXX and what if there are packets in flight and this close()
-	 * XXX is followed by a "rmmod sd_mod"?
-	 */
-
 	scsi_disk_put(sdkp);
 }
 
@@ -2251,6 +2253,22 @@ static void read_capacity_error(struct scsi_disk *sdkp, struct scsi_device *sdp,
 #endif
 
 #define READ_CAPACITY_RETRIES_ON_RESET	10
+
+/*
+ * Ensure that we don't overflow sector_t when CONFIG_LBDAF is not set
+ * and the reported logical block size is bigger than 512 bytes. Note
+ * that last_sector is a u64 and therefore logical_to_sectors() is not
+ * applicable.
+ */
+static bool sd_addressable_capacity(u64 lba, unsigned int sector_size)
+{
+	u64 last_sector = (lba + 1ULL) << (ilog2(sector_size) - 9);
+
+	if (sizeof(sector_t) == 4 && last_sector > U32_MAX)
+		return false;
+
+	return true;
+}
 
 /*
  * Ensure that we don't overflow sector_t when CONFIG_LBDAF is not set
@@ -3458,10 +3476,22 @@ static void scsi_disk_release(struct device *dev)
 {
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct gendisk *disk = sdkp->disk;
-	
+	struct request_queue *q = disk->queue;
+
 	spin_lock(&sd_index_lock);
 	ida_remove(&sd_index_ida, sdkp->index);
 	spin_unlock(&sd_index_lock);
+
+	/*
+	 * Wait until all requests that are in progress have completed.
+	 * This is necessary to avoid that e.g. scsi_end_request() crashes
+	 * due to clearing the disk->private_data pointer. Wait from inside
+	 * scsi_disk_release() instead of from sd_release() to avoid that
+	 * freezing and unfreezing the request queue affects user space I/O
+	 * in case multiple processes open a /dev/sd... node concurrently.
+	 */
+	blk_mq_freeze_queue(q);
+	blk_mq_unfreeze_queue(q);
 
 	disk->private_data = NULL;
 	put_disk(disk);
@@ -3587,6 +3617,9 @@ static int sd_resume(struct device *dev)
 {
 	struct scsi_disk *sdkp = dev_get_drvdata(dev);
 	int ret;
+
+	if (!sdkp)	/* E.g.: runtime resume at the start of sd_probe() */
+		return 0;
 
 	if (!sdkp)	/* E.g.: runtime resume at the start of sd_probe() */
 		return 0;

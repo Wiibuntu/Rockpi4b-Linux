@@ -209,17 +209,14 @@ void squashfs_cache_put(struct squashfs_cache_entry *entry)
  */
 void squashfs_cache_delete(struct squashfs_cache *cache)
 {
-	int i, j;
+	int i;
 
 	if (cache == NULL)
 		return;
 
 	for (i = 0; i < cache->entries; i++) {
-		if (cache->entry[i].data) {
-			for (j = 0; j < cache->pages; j++)
-				kfree(cache->entry[i].data[j]);
-			kfree(cache->entry[i].data);
-		}
+		if (cache->entry[i].page)
+			free_page_array(cache->entry[i].page, cache->pages);
 		kfree(cache->entry[i].actor);
 	}
 
@@ -236,7 +233,7 @@ void squashfs_cache_delete(struct squashfs_cache *cache)
 struct squashfs_cache *squashfs_cache_init(char *name, int entries,
 	int block_size)
 {
-	int i, j;
+	int i;
 	struct squashfs_cache *cache = kzalloc(sizeof(*cache), GFP_KERNEL);
 
 	if (cache == NULL) {
@@ -349,6 +346,9 @@ int squashfs_read_metadata(struct super_block *sb, void *buffer,
 	struct squashfs_cache_entry *entry;
 
 	TRACE("Entered squashfs_read_metadata [%llx:%x]\n", *block, *offset);
+
+	if (unlikely(length < 0))
+		return -EIO;
 
 	while (length) {
 		entry = squashfs_cache_get(sb, msblk->block_cache, *block, 0);

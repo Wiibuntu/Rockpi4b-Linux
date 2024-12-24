@@ -1358,6 +1358,7 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 	if (idx >= d->nvqs)
 		return -ENOBUFS;
 
+	idx = array_index_nospec(idx, d->nvqs);
 	vq = d->vqs[idx];
 
 	mutex_lock(&vq->mutex);
@@ -1520,6 +1521,19 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 		if (copy_to_user(argp, &s, sizeof(s)))
 			r = -EFAULT;
 		break;
+	case VHOST_SET_VRING_BUSYLOOP_TIMEOUT:
+		if (copy_from_user(&s, argp, sizeof(s))) {
+			r = -EFAULT;
+			break;
+		}
+		vq->busyloop_timeout = s.num;
+		break;
+	case VHOST_GET_VRING_BUSYLOOP_TIMEOUT:
+		s.index = idx;
+		s.num = vq->busyloop_timeout;
+		if (copy_to_user(argp, &s, sizeof(s)))
+			r = -EFAULT;
+		break;
 	default:
 		r = -ENOIOCTLCMD;
 	}
@@ -1542,6 +1556,30 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 	return r;
 }
 EXPORT_SYMBOL_GPL(vhost_vring_ioctl);
+
+int vhost_init_device_iotlb(struct vhost_dev *d, bool enabled)
+{
+	struct vhost_umem *niotlb, *oiotlb;
+	int i;
+
+	niotlb = vhost_umem_alloc();
+	if (!niotlb)
+		return -ENOMEM;
+
+	oiotlb = d->iotlb;
+	d->iotlb = niotlb;
+
+	for (i = 0; i < d->nvqs; ++i) {
+		mutex_lock(&d->vqs[i]->mutex);
+		d->vqs[i]->iotlb = niotlb;
+		mutex_unlock(&d->vqs[i]->mutex);
+	}
+
+	vhost_umem_clean(oiotlb);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(vhost_init_device_iotlb);
 
 int vhost_init_device_iotlb(struct vhost_dev *d, bool enabled)
 {
@@ -2284,6 +2322,20 @@ bool vhost_vq_avail_empty(struct vhost_dev *dev, struct vhost_virtqueue *vq)
 }
 EXPORT_SYMBOL_GPL(vhost_vq_avail_empty);
 
+/* return true if we're sure that avaiable ring is empty */
+bool vhost_vq_avail_empty(struct vhost_dev *dev, struct vhost_virtqueue *vq)
+{
+	__virtio16 avail_idx;
+	int r;
+
+	r = vhost_get_user(vq, avail_idx, &vq->avail->idx);
+	if (r)
+		return false;
+
+	return vhost16_to_cpu(vq, avail_idx) == vq->avail_idx;
+}
+EXPORT_SYMBOL_GPL(vhost_vq_avail_empty);
+
 /* OK, now we need to know about added descriptors. */
 bool vhost_enable_notify(struct vhost_dev *dev, struct vhost_virtqueue *vq)
 {
@@ -2359,6 +2411,50 @@ void vhost_enqueue_msg(struct vhost_dev *dev, struct list_head *head,
 	spin_unlock(&dev->iotlb_lock);
 
 	wake_up_interruptible_poll(&dev->wait, EPOLLIN | EPOLLRDNORM);
+}
+EXPORT_SYMBOL_GPL(vhost_enqueue_msg);
+
+struct vhost_msg_node *vhost_dequeue_msg(struct vhost_dev *dev,
+					 struct list_head *head)
+{
+	struct vhost_msg_node *node = NULL;
+
+	spin_lock(&dev->iotlb_lock);
+	if (!list_empty(head)) {
+		node = list_first_entry(head, struct vhost_msg_node,
+					node);
+		list_del(&node->node);
+	}
+	spin_unlock(&dev->iotlb_lock);
+
+	return node;
+}
+EXPORT_SYMBOL_GPL(vhost_dequeue_msg);
+
+
+/* Create a new message. */
+struct vhost_msg_node *vhost_new_msg(struct vhost_virtqueue *vq, int type)
+{
+	struct vhost_msg_node *node = kmalloc(sizeof *node, GFP_KERNEL);
+	if (!node)
+		return NULL;
+
+	/* Make sure all padding within the structure is initialized. */
+	memset(&node->msg, 0, sizeof node->msg);
+	node->vq = vq;
+	node->msg.type = type;
+	return node;
+}
+EXPORT_SYMBOL_GPL(vhost_new_msg);
+
+void vhost_enqueue_msg(struct vhost_dev *dev, struct list_head *head,
+		       struct vhost_msg_node *node)
+{
+	spin_lock(&dev->iotlb_lock);
+	list_add_tail(&node->node, head);
+	spin_unlock(&dev->iotlb_lock);
+
+	wake_up_interruptible_poll(&dev->wait, POLLIN | POLLRDNORM);
 }
 EXPORT_SYMBOL_GPL(vhost_enqueue_msg);
 

@@ -34,6 +34,8 @@
 
 #include <asm/early_ioremap.h>
 
+#include <asm/early_ioremap.h>
+
 struct efi __read_mostly efi = {
 	.mps			= EFI_INVALID_TABLE_ADDR,
 	.acpi			= EFI_INVALID_TABLE_ADDR,

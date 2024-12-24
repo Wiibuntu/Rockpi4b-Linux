@@ -273,6 +273,9 @@ static size_t at24_adjust_read_count(struct at24_data *at24,
 	unsigned int bits;
 	size_t remainder;
 
+	if (off + count > at24->chip.byte_len)
+		return -EINVAL;
+
 	/*
 	 * In case of multi-address chips that don't rollover reads to
 	 * the next slave address: truncate the count to the slave boundary,

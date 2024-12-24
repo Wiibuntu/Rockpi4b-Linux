@@ -527,7 +527,7 @@ int hibernation_restore(int platform_mode)
  */
 int hibernation_platform_enter(void)
 {
-	int error;
+	int error, nr_calls = 0;
 
 	if (!hibernation_ops)
 		return -ENOSYS;
@@ -648,7 +648,7 @@ static void power_down(void)
 
 static int load_image_and_restore(void)
 {
-	int error;
+	int error, nr_calls = 0;
 	unsigned int flags;
 
 	pm_pr_dbg("Loading hibernation image.\n");

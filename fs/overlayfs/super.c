@@ -10,6 +10,7 @@
 #include <uapi/linux/magic.h>
 #include <linux/fs.h>
 #include <linux/namei.h>
+#include <linux/pagemap.h>
 #include <linux/xattr.h>
 #include <linux/mount.h>
 #include <linux/parser.h>
@@ -133,6 +134,37 @@ static struct dentry *ovl_d_real(struct dentry *dentry,
 		return real;
 bug:
 	WARN(1, "ovl_d_real(%pd4, %s:%lu): real dentry not found\n", dentry,
+	     inode ? inode->i_sb->s_id : "NULL", inode ? inode->i_ino : 0);
+	return dentry;
+}
+
+static struct dentry *ovl_d_real(struct dentry *dentry, struct inode *inode)
+{
+	struct dentry *real;
+
+	if (d_is_dir(dentry)) {
+		if (!inode || inode == d_inode(dentry))
+			return dentry;
+		goto bug;
+	}
+
+	real = ovl_dentry_upper(dentry);
+	if (real && (!inode || inode == d_inode(real)))
+		return real;
+
+	real = ovl_dentry_lower(dentry);
+	if (!real)
+		goto bug;
+
+	if (!inode || inode == d_inode(real))
+		return real;
+
+	/* Handle recursion */
+	if (real->d_flags & DCACHE_OP_REAL)
+		return real->d_op->d_real(real, inode);
+
+bug:
+	WARN(1, "ovl_d_real(%pd4, %s:%lu\n): real dentry not found\n", dentry,
 	     inode ? inode->i_sb->s_id : "NULL", inode ? inode->i_ino : 0);
 	return dentry;
 }
@@ -348,6 +380,11 @@ static inline int ovl_xino_def(void)
 {
 	return ovl_xino_auto_def ? OVL_XINO_AUTO : OVL_XINO_OFF;
 }
+
+static bool __read_mostly ovl_override_creds_def = true;
+module_param_named(override_creds, ovl_override_creds_def, bool, 0644);
+MODULE_PARM_DESC(ovl_override_creds_def,
+		 "Use mounter's credentials for accesses");
 
 /**
  * ovl_show_options
@@ -698,6 +735,9 @@ static int ovl_mount_dir_noesc(const char *name, struct path *path)
 		pr_err("overlayfs: '%s' not a directory\n", name);
 		goto out_put;
 	}
+	if (ufs->config.override_creds != ovl_override_creds_def)
+		seq_show_option(m, "override_creds",
+				ufs->config.override_creds ? "on" : "off");
 	return 0;
 
 out_put:
@@ -1444,6 +1484,26 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 			pr_warn("overlayfs: NFS export requires an index dir, falling back to nfs_export=off.\n");
 			ofs->config.nfs_export = false;
 		}
+
+		/*
+		 * Upper should support d_type, else whiteouts are visible.
+		 * Given workdir and upper are on same fs, we can do
+		 * iterate_dir() on workdir. This check requires successful
+		 * creation of workdir in previous step.
+		 */
+		if (ufs->workdir) {
+			err = ovl_check_d_type_supported(&workpath);
+			if (err < 0)
+				goto out_put_workdir;
+
+			/*
+			 * We allowed this configuration and don't want to
+			 * break users over kernel upgrade. So warn instead
+			 * of erroring out.
+			 */
+			if (!err)
+				pr_warn("overlayfs: upper fs needs to support d_type.\n");
+		}
 	}
 
 	if (ofs->config.nfs_export)
@@ -1451,6 +1511,9 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 
 	/* Never override disk quota limits or use reserved space */
 	cap_lower(cred->cap_effective, CAP_SYS_RESOURCE);
+
+	ovl_copyattr(ovl_dentry_real(root_dentry)->d_inode,
+		     root_dentry->d_inode);
 
 	sb->s_magic = OVERLAYFS_SUPER_MAGIC;
 	sb->s_op = &ovl_super_operations;

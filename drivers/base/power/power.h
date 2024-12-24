@@ -118,6 +118,15 @@ static inline void dev_pm_disable_wake_irq_check(struct device *dev)
 {
 }
 
+static inline void dev_pm_enable_wake_irq_check(struct device *dev,
+						bool can_change_status)
+{
+}
+
+static inline void dev_pm_disable_wake_irq_check(struct device *dev)
+{
+}
+
 #endif
 
 #ifdef CONFIG_PM_SLEEP
@@ -169,6 +178,8 @@ static inline bool device_pm_initialized(struct device *dev)
 {
 	return device_is_registered(dev);
 }
+
+static inline void device_pm_check_callbacks(struct device *dev) {}
 
 #endif /* !CONFIG_PM_SLEEP */
 

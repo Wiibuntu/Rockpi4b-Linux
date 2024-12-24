@@ -1,0 +1,62 @@
+--- drivers/tty/tty_ldisc.c
++++ drivers/tty/tty_ldisc.c
+@@ -169,18 +176,19 @@ static struct tty_ldisc *tty_ldisc_get(struct tty_struct *tty, int disc)
+ 	 */
+ 	ldops = get_ldops(disc);
+ 	if (IS_ERR(ldops)) {
++		if (!capable(CAP_SYS_MODULE) && !tty_ldisc_autoload)
++			return ERR_PTR(-EPERM);
+ 		request_module("tty-ldisc-%d", disc);
+ 		ldops = get_ldops(disc);
+ 		if (IS_ERR(ldops))
+ 			return ERR_CAST(ldops);
+ 	}
+ 
+-	ld = kmalloc(sizeof(struct tty_ldisc), GFP_KERNEL);
+-	if (ld == NULL) {
+-		put_ldops(ldops);
+-		return ERR_PTR(-ENOMEM);
+-	}
+-
++	/*
++	 * There is no way to handle allocation failure of only 16 bytes.
++	 * Let's simplify error handling and save more memory.
++	 */
++	ld = kmalloc(sizeof(struct tty_ldisc), GFP_KERNEL | __GFP_NOFAIL);
+ 	ld->ops = ldops;
+ 	ld->tty = tty;
+ 
+@@ -329,7 +337,7 @@ static inline void __tty_ldisc_unlock(struct tty_struct *tty)
+ 	ldsem_up_write(&tty->ldisc_sem);
+ }
+ 
+-static int __lockfunc
++int __lockfunc
+ tty_ldisc_lock(struct tty_struct *tty, unsigned long timeout)
+ {
+ 	int ret;
+@@ -341,7 +349,7 @@ tty_ldisc_lock(struct tty_struct *tty, unsigned long timeout)
+ 	return 0;
+ }
+ 
+-static void tty_ldisc_unlock(struct tty_struct *tty)
++void tty_ldisc_unlock(struct tty_struct *tty)
+ {
+ 	clear_bit(TTY_LDISC_HALTED, &tty->flags);
+ 	__tty_ldisc_unlock(tty);
+@@ -811,12 +826,13 @@ void tty_ldisc_release(struct tty_struct *tty)
+  *	the tty structure is not completely set up when this call is made.
+  */
+ 
+-void tty_ldisc_init(struct tty_struct *tty)
++int tty_ldisc_init(struct tty_struct *tty)
+ {
+ 	struct tty_ldisc *ld = tty_ldisc_get(tty, N_TTY);
+ 	if (IS_ERR(ld))
+-		panic("n_tty: init_tty");
++		return PTR_ERR(ld);
+ 	tty->ldisc = ld;
++	return 0;
+ }
+ 
+ /**

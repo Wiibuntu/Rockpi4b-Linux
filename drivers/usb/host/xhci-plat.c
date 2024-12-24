@@ -65,12 +65,33 @@ static int xhci_priv_resume_quirk(struct usb_hcd *hcd)
 
 static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 {
+	struct usb_xhci_pdata *pdata = dev_get_platdata(dev);
+
 	/*
 	 * As of now platform drivers don't provide MSI support so we ensure
 	 * here that the generic code does not try to make a pci_dev from our
 	 * dev struct in order to setup MSI
 	 */
 	xhci->quirks |= XHCI_PLAT;
+
+	/*
+	 * On some xHCI controllers (e.g. Rockchip SoCs), it need an
+	 * extraordinary delay to wait for xHCI enter the Halted state
+	 * after the Run/Stop (R/S) bit is cleared to '0'.
+	 */
+	if (pdata && pdata->xhci_slow_suspend)
+		xhci->quirks |= XHCI_SLOW_SUSPEND;
+
+	if (pdata && pdata->usb3_warm_reset_on_resume)
+		xhci->quirks |= XHCI_WARM_RESET_ON_RESUME;
+
+	/*
+	 * On some xHCI controllers (e.g. Rockchip RK3399/RK3328/RK1808),
+	 * they need to enable the ENT flag in the TRB data structure to
+	 * force xHC to pre-fetch the next TRB of a TD.
+	 */
+	if (pdata && pdata->xhci_trb_ent)
+		xhci->quirks |= XHCI_TRB_ENT_QUIRK;
 }
 
 /* called during probe() after chip reset completes */
@@ -303,8 +324,17 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	if (ret)
 		goto disable_usb_phy;
 
-	if (HCC_MAX_PSA(xhci->hcc_params) >= 4)
-		xhci->shared_hcd->can_do_streams = 1;
+	if (pdata && pdata->usb3_disable_autosuspend)
+		xhci->quirks |= XHCI_DIS_AUTOSUSPEND;
+
+	xhci->shared_hcd->usb_phy = devm_usb_get_phy(&pdev->dev,
+						     USB_PHY_TYPE_USB3);
+	if (IS_ERR(xhci->shared_hcd->usb_phy)) {
+		ret = PTR_ERR(xhci->shared_hcd->usb_phy);
+		if (ret == -EPROBE_DEFER)
+			goto put_usb3_hcd;
+		xhci->shared_hcd->usb_phy = NULL;
+	}
 
 	ret = usb_add_hcd(xhci->shared_hcd, irq, IRQF_SHARED);
 	if (ret)
@@ -353,6 +383,8 @@ static int xhci_plat_remove(struct platform_device *dev)
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	struct clk *clk = xhci->clk;
 	struct clk *reg_clk = xhci->reg_clk;
+
+	xhci->xhc_state |= XHCI_STATE_REMOVING;
 
 	xhci->xhc_state |= XHCI_STATE_REMOVING;
 

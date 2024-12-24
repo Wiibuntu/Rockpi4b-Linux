@@ -642,6 +642,20 @@ static int qmi_wwan_change_dtr(struct usbnet *dev, bool on)
 				on ? 0x01 : 0x00, intf, NULL, 0);
 }
 
+/* Send CDC SetControlLineState request, setting or clearing the DTR.
+ * "Required for Autoconnect and 9x30 to wake up" according to the
+ * GobiNet driver. The requirement has been verified on an MDM9230
+ * based Sierra Wireless MC7455
+ */
+static int qmi_wwan_change_dtr(struct usbnet *dev, bool on)
+{
+	u8 intf = dev->intf->cur_altsetting->desc.bInterfaceNumber;
+
+	return usbnet_write_cmd(dev, USB_CDC_REQ_SET_CONTROL_LINE_STATE,
+				USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+				on ? 0x01 : 0x00, intf, NULL, 0);
+}
+
 static int qmi_wwan_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	int status = -1;
@@ -725,6 +739,29 @@ static int qmi_wwan_bind(struct usbnet *dev, struct usb_interface *intf)
 		qmi_wwan_change_dtr(dev, true);
 	}
 
+	/* disabling remote wakeup on MDM9x30 devices has the same
+	 * effect as clearing DTR. The device will not respond to QMI
+	 * requests until we set DTR again.  This is similar to a
+	 * QMI_CTL SYNC request, clearing a lot of firmware state
+	 * including the client ID allocations.
+	 *
+	 * Our usage model allows a session to span multiple
+	 * open/close events, so we must prevent the firmware from
+	 * clearing out state the clients might need.
+	 *
+	 * MDM9x30 is the first QMI chipset with USB3 support. Abuse
+	 * this fact to enable the quirk for all USB3 devices.
+	 *
+	 * There are also chipsets with the same "set DTR" requirement
+	 * but without USB3 support.  Devices based on these chips
+	 * need a quirk flag in the device ID table.
+	 */
+	if (dev->driver_info->data & QMI_WWAN_QUIRK_DTR ||
+	    le16_to_cpu(dev->udev->descriptor.bcdUSB) >= 0x0201) {
+		qmi_wwan_manage_power(dev, 1);
+		qmi_wwan_change_dtr(dev, true);
+	}
+
 	/* Never use the same address on both ends of the link, even if the
 	 * buggy firmware told us to. Or, if device is assigned the well-known
 	 * buggy firmware MAC address, replace it with a random address,
@@ -752,6 +789,12 @@ static void qmi_wwan_unbind(struct usbnet *dev, struct usb_interface *intf)
 
 	if (info->subdriver && info->subdriver->disconnect)
 		info->subdriver->disconnect(info->control);
+
+	/* disable MDM9x30 quirk */
+	if (le16_to_cpu(dev->udev->descriptor.bcdUSB) >= 0x0201) {
+		qmi_wwan_change_dtr(dev, false);
+		qmi_wwan_manage_power(dev, 0);
+	}
 
 	/* disable MDM9x30 quirk */
 	if (le16_to_cpu(dev->udev->descriptor.bcdUSB) >= 0x0201) {
@@ -855,6 +898,11 @@ static const struct driver_info	qmi_wwan_info_quirk_dtr = {
 	USB_DEVICE_INTERFACE_NUMBER(vend, prod, num), \
 	.driver_info = (unsigned long)&qmi_wwan_info_quirk_dtr
 
+/* devices requiring "set DTR" quirk */
+#define QMI_QUIRK_SET_DTR(vend, prod, num) \
+	USB_DEVICE_INTERFACE_NUMBER(vend, prod, num), \
+	.driver_info = (unsigned long)&qmi_wwan_info_quirk_dtr
+
 /* Gobi 1000 QMI/wwan interface number is 3 according to qcserial */
 #define QMI_GOBI1K_DEVICE(vend, prod) \
 	QMI_FIXED_INTF(vend, prod, 3)
@@ -862,6 +910,15 @@ static const struct driver_info	qmi_wwan_info_quirk_dtr = {
 /* Gobi 2000/3000 QMI/wwan interface number is 0 according to qcserial */
 #define QMI_GOBI_DEVICE(vend, prod) \
 	QMI_FIXED_INTF(vend, prod, 0)
+
+/* Quectel does not use fixed interface numbers on at least some of their
+ * devices. We need to check the number of endpoints to ensure that we bind to
+ * the correct interface.
+ */
+#define QMI_QUIRK_QUECTEL_DYNCFG(vend, prod) \
+	USB_DEVICE_AND_INTERFACE_INFO(vend, prod, USB_CLASS_VENDOR_SPEC, \
+				      USB_SUBCLASS_VENDOR_SPEC, 0xff), \
+	.driver_info = (unsigned long)&qmi_wwan_info_quirk_quectel_dyncfg
 
 static const struct usb_device_id products[] = {
 	/* 1. CDC ECM like devices match on the control interface */
@@ -875,6 +932,10 @@ static const struct usb_device_id products[] = {
 	},
 	{	/* HUAWEI_INTERFACE_NDIS_CONTROL_QUALCOMM */
 		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 0x01, 0x69),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* Motorola Mapphone devices with MDM6600 */
+		USB_VENDOR_AND_INTERFACE_INFO(0x22b8, USB_CLASS_VENDOR_SPEC, 0xfb, 0xff),
 		.driver_info        = (unsigned long)&qmi_wwan_info,
 	},
 	{	/* Motorola Mapphone devices with MDM6600 */
@@ -1163,6 +1224,7 @@ static const struct usb_device_id products[] = {
 	{QMI_FIXED_INTF(0x19d2, 0x0265, 4)},	/* ONDA MT8205 4G LTE */
 	{QMI_FIXED_INTF(0x19d2, 0x0284, 4)},	/* ZTE MF880 */
 	{QMI_FIXED_INTF(0x19d2, 0x0326, 4)},	/* ZTE MF821D */
+	{QMI_FIXED_INTF(0x19d2, 0x0396, 3)},	/* ZTE ZM8620 */
 	{QMI_FIXED_INTF(0x19d2, 0x0412, 4)},	/* Telewell TW-LTE 4G */
 	{QMI_FIXED_INTF(0x19d2, 0x1008, 4)},	/* ZTE (Vodafone) K3570-Z */
 	{QMI_FIXED_INTF(0x19d2, 0x1010, 4)},	/* ZTE (Vodafone) K3571-Z */
@@ -1334,6 +1396,7 @@ static int qmi_wwan_probe(struct usb_interface *intf,
 {
 	struct usb_device_id *id = (struct usb_device_id *)prod;
 	struct usb_interface_descriptor *desc = &intf->cur_altsetting->desc;
+	const struct driver_info *info;
 
 	/* Workaround to enable dynamic IDs.  This disables usbnet
 	 * blacklisting functionality.  Which, if required, can be

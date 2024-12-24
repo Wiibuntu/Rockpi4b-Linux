@@ -915,6 +915,12 @@ static bool ci_dpm_vblank_too_short(void *handle)
 	if (amdgpu_dpm_get_vrefresh(adev) > 120)
 		return true;
 
+	/* disable mclk switching if the refresh is >120Hz, even if the
+	 * blanking period would allow it
+	 */
+	if (amdgpu_dpm_get_vrefresh(adev) > 120)
+		return true;
+
 	if (vblank_time < switch_limit)
 		return true;
 	else

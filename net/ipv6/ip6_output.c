@@ -182,6 +182,14 @@ bool ip6_autoflowlabel(struct net *net, const struct ipv6_pinfo *np)
 		return np->autoflowlabel;
 }
 
+bool ip6_autoflowlabel(struct net *net, const struct ipv6_pinfo *np)
+{
+	if (!np->autoflowlabel_set)
+		return ip6_default_np_autolabel(net);
+	else
+		return np->autoflowlabel;
+}
+
 /*
  * xmit an sk_buff (used by TCP, SCTP and DCCP)
  * Note : socket lock is not held for SYNACK packets, but might be modified
@@ -195,39 +203,37 @@ int ip6_xmit(const struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 	const struct ipv6_pinfo *np = inet6_sk(sk);
 	struct in6_addr *first_hop = &fl6->daddr;
 	struct dst_entry *dst = skb_dst(skb);
+	unsigned int head_room;
 	struct ipv6hdr *hdr;
 	u8  proto = fl6->flowi6_proto;
 	int seg_len = skb->len;
 	int hlimit = -1;
 	u32 mtu;
 
-	if (opt) {
-		unsigned int head_room;
+	head_room = sizeof(struct ipv6hdr) + LL_RESERVED_SPACE(dst->dev);
+	if (opt)
+		head_room += opt->opt_nflen + opt->opt_flen;
 
-		/* First: exthdrs may take lots of space (~8K for now)
-		   MAX_HEADER is not enough.
-		 */
-		head_room = opt->opt_nflen + opt->opt_flen;
-		seg_len += head_room;
-		head_room += sizeof(struct ipv6hdr) + LL_RESERVED_SPACE(dst->dev);
-
-		if (skb_headroom(skb) < head_room) {
-			struct sk_buff *skb2 = skb_realloc_headroom(skb, head_room);
-			if (!skb2) {
-				IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
-					      IPSTATS_MIB_OUTDISCARDS);
-				kfree_skb(skb);
-				return -ENOBUFS;
-			}
-			consume_skb(skb);
-			skb = skb2;
-			/* skb_set_owner_w() changes sk->sk_wmem_alloc atomically,
-			 * it is safe to call in our context (socket lock not held)
-			 */
-			skb_set_owner_w(skb, (struct sock *)sk);
+	if (unlikely(skb_headroom(skb) < head_room)) {
+		struct sk_buff *skb2 = skb_realloc_headroom(skb, head_room);
+		if (!skb2) {
+			IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+				      IPSTATS_MIB_OUTDISCARDS);
+			kfree_skb(skb);
+			return -ENOBUFS;
 		}
+		if (skb->sk)
+			skb_set_owner_w(skb2, skb->sk);
+		consume_skb(skb);
+		skb = skb2;
+	}
+
+	if (opt) {
+		seg_len += opt->opt_nflen + opt->opt_flen;
+
 		if (opt->opt_flen)
 			ipv6_push_frag_opts(skb, opt, &proto);
+
 		if (opt->opt_nflen)
 			ipv6_push_nfrag_opts(skb, opt, &proto, &first_hop,
 					     &fl6->saddr);
@@ -595,6 +601,8 @@ static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 	to->dev = from->dev;
 	to->mark = from->mark;
 
+	skb_copy_hash(to, from);
+
 #ifdef CONFIG_NET_SCHED
 	to->tc_index = from->tc_index;
 #endif
@@ -656,6 +664,7 @@ int ip6_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 	    (err = skb_checksum_help(skb)))
 		goto fail;
 
+	prevhdr = skb_network_header(skb) + nexthdr_offset;
 	hroom = LL_RESERVED_SPACE(rt->dst.dev);
 	if (skb_has_frag_list(skb)) {
 		unsigned int first_len = skb_pagelen(skb);
@@ -834,6 +843,10 @@ slow_path:
 		 *	Copy the packet header into the new buffer.
 		 */
 		skb_copy_from_linear_data(skb, skb_network_header(frag), hlen);
+
+		fragnexthdr_offset = skb_network_header(frag);
+		fragnexthdr_offset += prevhdr - skb_network_header(skb);
+		*fragnexthdr_offset = NEXTHDR_FRAGMENT;
 
 		fragnexthdr_offset = skb_network_header(frag);
 		fragnexthdr_offset += prevhdr - skb_network_header(skb);
@@ -1092,6 +1105,7 @@ struct dst_entry *ip6_dst_lookup_flow(const struct sock *sk, struct flowi6 *fl6,
 {
 	struct dst_entry *dst = NULL;
 	int err;
+	int flags = 0;
 
 	err = ip6_dst_lookup_tail(sock_net(sk), sk, &dst, fl6);
 	if (err)

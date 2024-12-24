@@ -2298,6 +2298,50 @@ void intel_infoframe_init(struct intel_digital_port *intel_dig_port)
 	}
 }
 
+static u8 intel_hdmi_ddc_pin(struct drm_i915_private *dev_priv,
+			     enum port port)
+{
+	const struct ddi_vbt_port_info *info =
+		&dev_priv->vbt.ddi_port_info[port];
+	u8 ddc_pin;
+
+	if (info->alternate_ddc_pin) {
+		DRM_DEBUG_KMS("Using DDC pin 0x%x for port %c (VBT)\n",
+			      info->alternate_ddc_pin, port_name(port));
+		return info->alternate_ddc_pin;
+	}
+
+	switch (port) {
+	case PORT_B:
+		if (IS_BROXTON(dev_priv))
+			ddc_pin = GMBUS_PIN_1_BXT;
+		else
+			ddc_pin = GMBUS_PIN_DPB;
+		break;
+	case PORT_C:
+		if (IS_BROXTON(dev_priv))
+			ddc_pin = GMBUS_PIN_2_BXT;
+		else
+			ddc_pin = GMBUS_PIN_DPC;
+		break;
+	case PORT_D:
+		if (IS_CHERRYVIEW(dev_priv))
+			ddc_pin = GMBUS_PIN_DPD_CHV;
+		else
+			ddc_pin = GMBUS_PIN_DPD;
+		break;
+	default:
+		MISSING_CASE(port);
+		ddc_pin = GMBUS_PIN_DPB;
+		break;
+	}
+
+	DRM_DEBUG_KMS("Using DDC pin 0x%x for port %c (platform default)\n",
+		      ddc_pin, port_name(port));
+
+	return ddc_pin;
+}
+
 void intel_hdmi_init_connector(struct intel_digital_port *intel_dig_port,
 			       struct intel_connector *intel_connector)
 {

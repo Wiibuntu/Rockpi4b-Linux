@@ -1,0 +1,10 @@
+--- include/media/videobuf2-v4l2.h
++++ include/media/videobuf2-v4l2.h
+@@ -31,6 +31,7 @@
+  * @timestamp:	frame timestamp
+  * @timecode:	frame timecode
+  * @sequence:	sequence count of this frame
++ * @config_store: this buffer should use this configuration store
+  * Should contain enough information to be able to cover all the fields
+  * of struct v4l2_buffer at videodev2.h
+  */

@@ -307,7 +307,7 @@ coalesce_t2(char *second_buf, struct smb_hdr *target_hdr)
 	remaining = tgt_total_cnt - total_in_tgt;
 
 	if (remaining < 0) {
-		cifs_dbg(FYI, "Server sent too much data. tgt_total_cnt=%hu total_in_tgt=%hu\n",
+		cifs_dbg(FYI, "Server sent too much data. tgt_total_cnt=%hu total_in_tgt=%u\n",
 			 tgt_total_cnt, total_in_tgt);
 		return -EPROTO;
 	}
@@ -1020,6 +1020,15 @@ static bool
 cifs_dir_needs_close(struct cifsFileInfo *cfile)
 {
 	return !cfile->srch_inf.endOfSearch && !cfile->invalidHandle;
+}
+
+static bool
+cifs_can_echo(struct TCP_Server_Info *server)
+{
+	if (server->tcpStatus == CifsGood)
+		return true;
+
+	return false;
 }
 
 static bool

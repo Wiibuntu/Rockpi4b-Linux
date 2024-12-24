@@ -404,6 +404,12 @@ bool gpiochip_line_is_valid(const struct gpio_chip *chip, unsigned int offset);
 /* get driver data */
 void *gpiochip_get_data(struct gpio_chip *chip);
 
+/* get driver data */
+static inline void *gpiochip_get_data(struct gpio_chip *chip)
+{
+	return chip->data;
+}
+
 struct gpio_chip *gpiod_to_chip(const struct gpio_desc *desc);
 
 struct bgpio_pdata {

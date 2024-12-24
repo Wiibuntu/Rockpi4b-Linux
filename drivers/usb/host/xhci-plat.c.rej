@@ -1,0 +1,31 @@
+--- drivers/usb/host/xhci-plat.c
++++ drivers/usb/host/xhci-plat.c
+@@ -113,7 +134,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
+ 
+ 	irq = platform_get_irq(pdev, 0);
+ 	if (irq < 0)
+-		return -ENODEV;
++		return irq;
+ 
+ 	/* Try to set 64-bit DMA first */
+ 	if (WARN_ON(!pdev->dev.dma_mask))
+@@ -153,6 +174,9 @@ static int xhci_plat_probe(struct platform_device *pdev)
+ 		ret = clk_prepare_enable(clk);
+ 		if (ret)
+ 			goto put_hcd;
++	} else if (PTR_ERR(clk) == -EPROBE_DEFER) {
++		ret = -EPROBE_DEFER;
++		goto put_hcd;
+ 	}
+ 
+ 	if (of_device_is_compatible(pdev->dev.of_node,
+@@ -208,6 +241,9 @@ static int xhci_plat_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto disable_usb_phy;
+ 
++	if (HCC_MAX_PSA(xhci->hcc_params) >= 4)
++		xhci->shared_hcd->can_do_streams = 1;
++
+ 	ret = usb_add_hcd(xhci->shared_hcd, irq, IRQF_SHARED);
+ 	if (ret)
+ 		goto dealloc_usb2_hcd;

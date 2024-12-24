@@ -1205,6 +1205,13 @@ int neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new,
 		neigh->updated = jiffies;
 	}
 
+	/* Update timestamp only once we know we will make a change to the
+	 * neighbour entry. Otherwise we risk to move the locktime window with
+	 * noop updates and ignore relevant ARP updates.
+	 */
+	if (new != old || lladdr != neigh->ha)
+		neigh->updated = jiffies;
+
 	if (new != old) {
 		neigh_del_timer(neigh);
 		if (new & NUD_PROBE)

@@ -1720,23 +1720,17 @@ EXPORT_SYMBOL(genphy_loopback);
 
 static int __set_phy_supported(struct phy_device *phydev, u32 max_speed)
 {
-	/* The default values for phydev->supported are provided by the PHY
-	 * driver "features" member, we want to reset to sane defaults first
-	 * before supporting higher speeds.
-	 */
-	phydev->supported &= PHY_DEFAULT_FEATURES;
-
 	switch (max_speed) {
-	default:
-		return -ENOTSUPP;
-	case SPEED_1000:
-		phydev->supported |= PHY_1000BT_FEATURES;
+	case SPEED_10:
+		phydev->supported &= ~PHY_100BT_FEATURES;
 		/* fall through */
 	case SPEED_100:
-		phydev->supported |= PHY_100BT_FEATURES;
-		/* fall through */
-	case SPEED_10:
-		phydev->supported |= PHY_10BT_FEATURES;
+		phydev->supported &= ~PHY_1000BT_FEATURES;
+		break;
+	case SPEED_1000:
+		break;
+	default:
+		return -ENOTSUPP;
 	}
 
 	return 0;
@@ -1824,6 +1818,8 @@ static int phy_probe(struct device *dev)
 
 	if (phydrv->flags & PHY_IS_INTERNAL)
 		phydev->is_internal = true;
+
+	cancel_delayed_work_sync(&phydev->state_queue);
 
 	mutex_lock(&phydev->lock);
 

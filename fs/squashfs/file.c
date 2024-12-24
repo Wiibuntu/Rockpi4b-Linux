@@ -47,11 +47,15 @@
 #include <linux/string.h>
 #include <linux/pagemap.h>
 #include <linux/mutex.h>
+#include <linux/mm_inline.h>
 
 #include "squashfs_fs.h"
 #include "squashfs_fs_sb.h"
 #include "squashfs_fs_i.h"
 #include "squashfs.h"
+
+// Backported from 4.5
+#define lru_to_page(head) (list_entry((head)->prev, struct page, lru))
 
 /*
  * Locate cache slot in range [offset, index] for specified inode.  If
@@ -194,7 +198,11 @@ static long long read_indexes(struct super_block *sb, int n,
 		}
 
 		for (i = 0; i < blocks; i++) {
-			int size = le32_to_cpu(blist[i]);
+			int size = squashfs_block_size(blist[i]);
+			if (size < 0) {
+				err = size;
+				goto failure;
+			}
 			block += SQUASHFS_COMPRESSED_SIZE_BLOCK(size);
 		}
 		n -= blocks;
@@ -367,7 +375,7 @@ static int read_blocklist(struct inode *inode, int index, u64 *block)
 			sizeof(size));
 	if (res < 0)
 		return res;
-	return le32_to_cpu(size);
+	return squashfs_block_size(size);
 }
 
 /* Copy data into page cache  */
@@ -436,6 +444,21 @@ static int squashfs_readpage_fragment(struct page *page)
 
 	squashfs_cache_put(buffer);
 	return res;
+}
+
+static int squashfs_readpages_fragment(struct page *page,
+	struct list_head *readahead_pages, struct address_space *mapping)
+{
+	if (!page) {
+		page = lru_to_page(readahead_pages);
+		list_del(&page->lru);
+		if (add_to_page_cache_lru(page, mapping, page->index,
+			mapping_gfp_constraint(mapping, GFP_KERNEL))) {
+			put_page(page);
+			return 0;
+		}
+	}
+	return squashfs_readpage_fragment(page);
 }
 
 static int squashfs_readpage_sparse(struct page *page, int index, int file_end)

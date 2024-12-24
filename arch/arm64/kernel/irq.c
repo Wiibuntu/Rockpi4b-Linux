@@ -35,6 +35,9 @@ unsigned long irq_err_count;
 
 DEFINE_PER_CPU(unsigned long *, irq_stack_ptr);
 
+/* irq stack only needs to be 16 byte aligned - not IRQ_STACK_SIZE aligned. */
+DEFINE_PER_CPU(unsigned long [IRQ_STACK_SIZE/sizeof(long)], irq_stack) __aligned(16);
+
 int arch_show_interrupts(struct seq_file *p, int prec)
 {
 	show_ipi_list(p, prec);

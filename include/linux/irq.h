@@ -391,6 +391,11 @@ static inline bool irqd_can_reserve(struct irq_data *d)
 
 #undef __irqd_to_state
 
+static inline bool irqd_is_started(struct irq_data *d)
+{
+	return __irqd_to_state(d) & IRQD_IRQ_STARTED;
+}
+
 static inline irq_hw_number_t irqd_to_hwirq(struct irq_data *d)
 {
 	return d->hwirq;
@@ -1106,6 +1111,16 @@ static inline void irq_gc_unlock(struct irq_chip_generic *gc)
 static inline void irq_gc_lock(struct irq_chip_generic *gc) { }
 static inline void irq_gc_unlock(struct irq_chip_generic *gc) { }
 #endif
+
+/*
+ * The irqsave variants are for usage in non interrupt code. Do not use
+ * them in irq_chip callbacks. Use irq_gc_lock() instead.
+ */
+#define irq_gc_lock_irqsave(gc, flags)	\
+	raw_spin_lock_irqsave(&(gc)->lock, flags)
+
+#define irq_gc_unlock_irqrestore(gc, flags)	\
+	raw_spin_unlock_irqrestore(&(gc)->lock, flags)
 
 /*
  * The irqsave variants are for usage in non interrupt code. Do not use

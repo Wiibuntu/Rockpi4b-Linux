@@ -126,6 +126,7 @@ static struct buffer_head *__ext4_read_dirblock(struct inode *inode,
 	if (!is_dx_block && type == INDEX) {
 		ext4_error_inode(inode, func, line, block,
 		       "directory leaf block found instead of index block");
+		brelse(bh);
 		return ERR_PTR(-EFSCORRUPTED);
 	}
 	if (!ext4_has_metadata_csum(inode->i_sb) ||
@@ -1549,6 +1550,24 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsi
 	err = fscrypt_prepare_lookup(dir, dentry, flags);
 	if (err)
 		return ERR_PTR(err);
+
+       if (ext4_encrypted_inode(dir)) {
+               int res = ext4_get_encryption_info(dir);
+
+		/*
+		 * This should be a properly defined flag for
+		 * dentry->d_flags when we uplift this to the VFS.
+		 * d_fsdata is set to (void *) 1 if if the dentry is
+		 * created while the directory was encrypted and we
+		 * don't have access to the key.
+		 */
+	       dentry->d_fsdata = NULL;
+	       if (ext4_encryption_info(dir))
+		       dentry->d_fsdata = (void *) 1;
+	       d_set_d_op(dentry, &ext4_encrypted_d_ops);
+	       if (res && res != -ENOKEY)
+		       return ERR_PTR(res);
+       }
 
 	if (dentry->d_name.len > EXT4_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
@@ -3481,6 +3500,12 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 	    (!projid_eq(EXT4_I(new_dir)->i_projid,
 			EXT4_I(old_dentry->d_inode)->i_projid)))
 		return -EXDEV;
+
+	if ((ext4_encrypted_inode(old_dir) &&
+	     !ext4_has_encryption_key(old_dir)) ||
+	    (ext4_encrypted_inode(new_dir) &&
+	     !ext4_has_encryption_key(new_dir)))
+		return -ENOKEY;
 
 	retval = dquot_initialize(old.dir);
 	if (retval)

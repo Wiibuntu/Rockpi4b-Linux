@@ -68,6 +68,7 @@ config SND_SOC_ALL_CODECS
 	select SND_SOC_CS47L24 if MFD_CS47L24
 	select SND_SOC_CS53L30 if I2C
 	select SND_SOC_CX20442 if TTY
+	select SND_SOC_CX2072X if I2C
 	select SND_SOC_DA7210 if SND_SOC_I2C_AND_SPI
 	select SND_SOC_DA7213 if I2C
 	select SND_SOC_DA7218 if I2C
@@ -542,6 +543,17 @@ config SND_SOC_CX20442
 	tristate
 	depends on TTY
 
+config SND_SOC_CX2072X
+	tristate "CX2072X CODEC"
+
+config SND_SOC_CX20810
+	tristate "CX20810 is a voice capture ic."
+	depends on I2C
+	help
+	  Say Y here if you have a CX20810 ic and want to enable
+	  support for the built-in.
+	  If unsure, say N.
+
 config SND_SOC_JZ4740_CODEC
 	select REGMAP_MMIO
 	tristate
@@ -819,18 +831,22 @@ config SND_SOC_RT5616
 	tristate "Realtek RT5616 CODEC"
 	depends on I2C
 
+config SND_SOC_RT5616
+	tristate "Realtek RT5616 CODEC"
+
 config SND_SOC_RT5631
 	tristate "Realtek ALC5631/RT5631 CODEC"
 	depends on I2C
 
 config SND_SOC_RT5640
-	tristate
+	tristate "Realtek ALC5640 CODEC"
+	depends on I2C
 
 config SND_SOC_RT5645
         tristate
 
 config SND_SOC_RT5651
-	tristate
+	tristate "Realtek ALC5651 CODEC"
 
 config SND_SOC_RT5659
 	tristate

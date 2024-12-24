@@ -1,0 +1,20 @@
+--- include/net/fib_rules.h
++++ include/net/fib_rules.h
+@@ -34,6 +39,7 @@ struct fib_rule {
+ 	int			suppress_prefixlen;
+ 	char			iifname[IFNAMSIZ];
+ 	char			oifname[IFNAMSIZ];
++	struct fib_kuid_range	uid_range;
+ 	struct rcu_head		rcu;
+ };
+ 
+@@ -94,7 +100,8 @@ struct fib_rules_ops {
+ 	[FRA_TABLE]     = { .type = NLA_U32 }, \
+ 	[FRA_SUPPRESS_PREFIXLEN] = { .type = NLA_U32 }, \
+ 	[FRA_SUPPRESS_IFGROUP] = { .type = NLA_U32 }, \
+-	[FRA_GOTO]	= { .type = NLA_U32 }
++	[FRA_GOTO]	= { .type = NLA_U32 }, \
++	[FRA_UID_RANGE]	= { .len = sizeof(struct fib_rule_uid_range) }
+ 
+ static inline void fib_rule_get(struct fib_rule *rule)
+ {

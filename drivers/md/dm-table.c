@@ -11,6 +11,7 @@
 #include <linux/vmalloc.h>
 #include <linux/blkdev.h>
 #include <linux/namei.h>
+#include <linux/mount.h>
 #include <linux/ctype.h>
 #include <linux/string.h>
 #include <linux/slab.h>
@@ -378,6 +379,26 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 }
 
 /*
+ * Convert the path to a device
+ */
+dev_t dm_get_dev_t(const char *path)
+{
+	dev_t uninitialized_var(dev);
+	struct block_device *bdev;
+
+	bdev = lookup_bdev(path);
+	if (IS_ERR(bdev))
+		dev = name_to_dev_t(path);
+	else {
+		dev = bdev->bd_dev;
+		bdput(bdev);
+	}
+
+	return dev;
+}
+EXPORT_SYMBOL_GPL(dm_get_dev_t);
+
+/*
  * This upgrades the mode on an already open dm_dev, being
  * careful to leave things as they were if we fail to reopen the
  * device and not to touch the existing bdev field in case
@@ -548,14 +569,14 @@ static int adjoin(struct dm_table *table, struct dm_target *ti)
  * On the other hand, dm-switch needs to process bulk data using messages and
  * excessive use of GFP_NOIO could cause trouble.
  */
-static char **realloc_argv(unsigned *array_size, char **old_argv)
+static char **realloc_argv(unsigned *size, char **old_argv)
 {
 	char **argv;
 	unsigned new_size;
 	gfp_t gfp;
 
-	if (*array_size) {
-		new_size = *array_size * 2;
+	if (*size) {
+		new_size = *size * 2;
 		gfp = GFP_KERNEL;
 	} else {
 		new_size = 8;
@@ -563,8 +584,8 @@ static char **realloc_argv(unsigned *array_size, char **old_argv)
 	}
 	argv = kmalloc(new_size * sizeof(*argv), gfp);
 	if (argv) {
-		memcpy(argv, old_argv, *array_size * sizeof(*argv));
-		*array_size = new_size;
+		memcpy(argv, old_argv, *size * sizeof(*argv));
+		*size = new_size;
 	}
 
 	kfree(old_argv);
@@ -784,6 +805,16 @@ int dm_table_add_target(struct dm_table *t, const char *type,
 		tgt->error = "couldn't split parameters (insufficient memory)";
 		goto bad;
 	}
+
+#ifdef CONFIG_ARCH_ROCKCHIP
+	while (argv &&
+	       strncmp(argv[1], "PARTUUID=", 9) == 0 &&
+	       name_to_dev_t(argv[1]) == 0) {
+		DMINFO("%s: %s: Waiting for device %s ...",
+		       dm_device_name(t->md), type, argv[1]);
+		msleep(100);
+	}
+#endif
 
 	r = tgt->type->ctr(tgt, argc, argv);
 	kfree(argv);

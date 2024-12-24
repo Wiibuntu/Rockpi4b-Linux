@@ -1,0 +1,10 @@
+--- arch/nios2/kernel/vmlinux.lds.S
++++ arch/nios2/kernel/vmlinux.lds.S
+@@ -39,6 +39,7 @@ SECTIONS
+ 		SCHED_TEXT
+ 		LOCK_TEXT
+ 		IRQENTRY_TEXT
++		SOFTIRQENTRY_TEXT
+ 		KPROBES_TEXT
+ 	} =0
+ 	_etext = .;

@@ -1,0 +1,14 @@
+--- drivers/gpu/drm/drm_debugfs.c
++++ drivers/gpu/drm/drm_debugfs.c
+@@ -37,8 +37,11 @@
+ #include <drm/drmP.h>
+ #include <drm/drm_edid.h>
+ #include "drm_internal.h"
++#include <linux/ctype.h>
++#include <linux/syscalls.h>
+ 
+ #if defined(CONFIG_DEBUG_FS)
++#define DUMP_BUF_PATH		"/data/vop_buf"
+ 
+ /***************************************************
+  * Initialization, etc.

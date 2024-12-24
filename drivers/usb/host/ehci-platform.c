@@ -28,6 +28,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/reset.h>
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
@@ -47,6 +48,30 @@ struct ehci_platform_priv {
 };
 
 static const char hcd_name[] = "ehci-platform";
+
+static void ehci_rockchip_relinquish_port(struct usb_hcd *hcd, int portnum)
+{
+	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
+	u32 __iomem *status_reg = &ehci->regs->port_status[--portnum];
+	u32 portsc;
+
+	portsc = ehci_readl(ehci, status_reg);
+	portsc &= ~(PORT_OWNER | PORT_RWC_BITS);
+
+	ehci_writel(ehci, portsc, status_reg);
+}
+
+static void ehci_rockchip_usic_init(struct usb_hcd *hcd)
+{
+	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
+
+	ehci_writel(ehci, USIC_ENABLE,
+		    hcd->regs + USIC_ENABLE_OFFSET);
+	ehci_writel(ehci, USIC_MICROFRAME_COUNT,
+		    hcd->regs + USIC_MICROFRAME_OFFSET);
+	ehci_writel(ehci, USIC_SCALE_DOWN,
+		    hcd->regs + USIC_SCALE_DOWN_OFFSET);
+}
 
 static int ehci_platform_reset(struct usb_hcd *hcd)
 {
@@ -226,6 +251,9 @@ static int ehci_platform_probe(struct platform_device *dev)
 	}
 #endif
 
+	pm_runtime_set_active(&dev->dev);
+	pm_runtime_enable(&dev->dev);
+	pm_runtime_get_sync(&dev->dev);
 	if (pdata->power_on) {
 		err = pdata->power_on(dev);
 		if (err < 0)
@@ -240,10 +268,15 @@ static int ehci_platform_probe(struct platform_device *dev)
 	}
 	hcd->rsrc_start = res_mem->start;
 	hcd->rsrc_len = resource_size(res_mem);
+	if (priv->num_phys == 1)
+		hcd->phy = priv->phys[0];
 
 	err = usb_add_hcd(hcd, irq, IRQF_SHARED);
 	if (err)
 		goto err_power;
+
+	if (ehci->has_usic)
+		ehci_rockchip_usic_init(hcd);
 
 	device_wakeup_enable(hcd->self.controller);
 	device_enable_async_suspend(hcd->self.controller);
@@ -286,6 +319,9 @@ static int ehci_platform_remove(struct platform_device *dev)
 		clk_put(priv->clks[clk]);
 
 	usb_put_hcd(hcd);
+
+	pm_runtime_put_sync(&dev->dev);
+	pm_runtime_disable(&dev->dev);
 
 	if (pdata == &ehci_platform_defaults)
 		dev->dev.platform_data = NULL;

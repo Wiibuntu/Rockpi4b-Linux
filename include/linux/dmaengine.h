@@ -376,6 +376,8 @@ struct dma_slave_config {
 	u32 dst_port_window_size;
 	bool device_fc;
 	unsigned int slave_id;
+	unsigned int src_interlace_size;
+	unsigned int dst_interlace_size;
 };
 
 /**
@@ -837,6 +839,9 @@ static inline struct dma_async_tx_descriptor *dmaengine_prep_slave_single(
 	if (!chan || !chan->device || !chan->device->device_prep_slave_sg)
 		return NULL;
 
+	if (!chan || !chan->device || !chan->device->device_prep_slave_sg)
+		return NULL;
+
 	return chan->device->device_prep_slave_sg(chan, &sg, 1,
 						  dir, flags, NULL);
 }
@@ -977,6 +982,86 @@ static inline void dmaengine_synchronize(struct dma_chan *chan)
 {
 	might_sleep();
 
+	if (chan->device->device_synchronize)
+		chan->device->device_synchronize(chan);
+}
+
+/**
+ * dmaengine_terminate_sync() - Terminate all active DMA transfers
+ * @chan: The channel for which to terminate the transfers
+ *
+ * Calling this function will terminate all active and pending transfers
+ * that have previously been submitted to the channel. It is similar to
+ * dmaengine_terminate_async() but guarantees that the DMA transfer has actually
+ * stopped and that all complete callbacks have finished running when the
+ * function returns.
+ *
+ * This function must only be called from non-atomic context and must not be
+ * called from within a complete callback of a descriptor submitted on the same
+ * channel.
+ */
+static inline int dmaengine_terminate_sync(struct dma_chan *chan)
+{
+	int ret;
+
+	ret = dmaengine_terminate_async(chan);
+	if (ret)
+		return ret;
+
+	dmaengine_synchronize(chan);
+
+	return 0;
+}
+
+/**
+ * dmaengine_terminate_async() - Terminate all active DMA transfers
+ * @chan: The channel for which to terminate the transfers
+ *
+ * Calling this function will terminate all active and pending descriptors
+ * that have previously been submitted to the channel. It is not guaranteed
+ * though that the transfer for the active descriptor has stopped when the
+ * function returns. Furthermore it is possible the complete callback of a
+ * submitted transfer is still running when this function returns.
+ *
+ * dmaengine_synchronize() needs to be called before it is safe to free
+ * any memory that is accessed by previously submitted descriptors or before
+ * freeing any resources accessed from within the completion callback of any
+ * perviously submitted descriptors.
+ *
+ * This function can be called from atomic context as well as from within a
+ * complete callback of a descriptor submitted on the same channel.
+ *
+ * If none of the two conditions above apply consider using
+ * dmaengine_terminate_sync() instead.
+ */
+static inline int dmaengine_terminate_async(struct dma_chan *chan)
+{
+	if (chan->device->device_terminate_all)
+		return chan->device->device_terminate_all(chan);
+
+	return -EINVAL;
+}
+
+/**
+ * dmaengine_synchronize() - Synchronize DMA channel termination
+ * @chan: The channel to synchronize
+ *
+ * Synchronizes to the DMA channel termination to the current context. When this
+ * function returns it is guaranteed that all transfers for previously issued
+ * descriptors have stopped and and it is safe to free the memory assoicated
+ * with them. Furthermore it is guaranteed that all complete callback functions
+ * for a previously submitted descriptor have finished running and it is safe to
+ * free resources accessed from within the complete callbacks.
+ *
+ * The behavior of this function is undefined if dma_async_issue_pending() has
+ * been called between dmaengine_terminate_async() and this function.
+ *
+ * This function must only be called from non-atomic context and must not be
+ * called from within a complete callback of a descriptor submitted on the same
+ * channel.
+ */
+static inline void dmaengine_synchronize(struct dma_chan *chan)
+{
 	if (chan->device->device_synchronize)
 		chan->device->device_synchronize(chan);
 }

@@ -50,6 +50,13 @@ static void rockchip_drm_fb_destroy(struct drm_framebuffer *fb)
 	for (i = 0; i < ROCKCHIP_MAX_FB_BUFFER; i++)
 		drm_gem_object_put_unlocked(rockchip_fb->obj[i]);
 
+#ifndef MODULE
+	if (rockchip_fb->logo)
+		rockchip_free_loader_memory(fb->dev);
+#else
+	WARN_ON(rockchip_fb->logo);
+#endif
+
 	drm_framebuffer_cleanup(fb);
 	kfree(rockchip_fb);
 }
@@ -132,6 +139,8 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		unsigned int width = mode_cmd->width / (i ? hsub : 1);
 		unsigned int height = mode_cmd->height / (i ? vsub : 1);
 		unsigned int min_size;
+		unsigned int bpp =
+			drm_format_plane_bpp(mode_cmd->pixel_format, i);
 
 		obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[i]);
 		if (!obj) {
@@ -153,13 +162,13 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		objs[i] = obj;
 	}
 
-	rockchip_fb = rockchip_fb_alloc(dev, mode_cmd, objs, i);
-	if (IS_ERR(rockchip_fb)) {
-		ret = PTR_ERR(rockchip_fb);
+	fb = rockchip_fb_alloc(dev, mode_cmd, objs, NULL, i);
+	if (IS_ERR(fb)) {
+		ret = PTR_ERR(fb);
 		goto err_gem_object_unreference;
 	}
 
-	return &rockchip_fb->fb;
+	return fb;
 
 err_gem_object_unreference:
 	for (i--; i >= 0; i--)
@@ -202,8 +211,9 @@ void rockchip_drm_mode_config_init(struct drm_device *dev)
 	 * this value would be used to check framebuffer size limitation
 	 * at drm_mode_addfb().
 	 */
-	dev->mode_config.max_width = 4096;
-	dev->mode_config.max_height = 4096;
+	dev->mode_config.max_width = 8192;
+	dev->mode_config.max_height = 8192;
+	dev->mode_config.async_page_flip = true;
 
 	dev->mode_config.funcs = &rockchip_drm_mode_config_funcs;
 	dev->mode_config.helper_private = &rockchip_mode_config_helpers;

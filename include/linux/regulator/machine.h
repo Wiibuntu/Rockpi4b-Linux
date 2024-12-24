@@ -59,6 +59,13 @@ enum regulator_active_discharge {
 	REGULATOR_ACTIVE_DISCHARGE_ENABLE,
 };
 
+/* Regulator active discharge flags */
+enum regulator_active_discharge {
+	REGULATOR_ACTIVE_DISCHARGE_DEFAULT,
+	REGULATOR_ACTIVE_DISCHARGE_DISABLE,
+	REGULATOR_ACTIVE_DISCHARGE_ENABLE,
+};
+
 /**
  * struct regulator_state - regulator state during low power system states
  *
@@ -97,6 +104,9 @@ struct regulator_state {
  * @max_uV: Largest voltage consumers may set.
  * @uV_offset: Offset applied to voltages from consumer to compensate for
  *             voltage drops.
+ *
+ * @early_min_uV: Minimum voltage during system startup, make sure we select
+ *                a voltage that suits the needs of all regulator consumers.
  *
  * @min_uA: Smallest current consumers may set.
  * @max_uA: Largest current consumers may set.
@@ -144,6 +154,9 @@ struct regulation_constraints {
 	/* voltage output range (inclusive) - for voltage control */
 	int min_uV;
 	int max_uV;
+
+	/* Minimum voltage during system startup */
+	int early_min_uV;
 
 	int uV_offset;
 

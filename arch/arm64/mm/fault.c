@@ -125,6 +125,28 @@ static void mem_abort_decode(unsigned int esr)
 		data_abort_decode(esr);
 }
 
+#ifdef CONFIG_KPROBES
+static inline int notify_page_fault(struct pt_regs *regs, unsigned int esr)
+{
+	int ret = 0;
+
+	/* kprobe_running() needs smp_processor_id() */
+	if (!user_mode(regs)) {
+		preempt_disable();
+		if (kprobe_running() && kprobe_fault_handler(regs, esr))
+			ret = 1;
+		preempt_enable();
+	}
+
+	return ret;
+}
+#else
+static inline int notify_page_fault(struct pt_regs *regs, unsigned int esr)
+{
+	return 0;
+}
+#endif
+
 /*
  * Dump out the page tables associated with 'addr' in the currently active mm.
  */
@@ -413,6 +435,26 @@ static bool is_el0_instruction_abort(unsigned int esr)
 	return ESR_ELx_EC(esr) == ESR_ELx_EC_IABT_LOW;
 }
 
+static inline bool is_permission_fault(unsigned int esr, struct pt_regs *regs)
+{
+	unsigned int ec       = ESR_ELx_EC(esr);
+	unsigned int fsc_type = esr & ESR_ELx_FSC_TYPE;
+
+	if (ec != ESR_ELx_EC_DABT_CUR && ec != ESR_ELx_EC_IABT_CUR)
+		return false;
+
+	if (system_uses_ttbr0_pan())
+		return fsc_type == ESR_ELx_FSC_FAULT &&
+			(regs->pstate & PSR_PAN_BIT);
+	else
+		return fsc_type == ESR_ELx_FSC_PERM;
+}
+
+static bool is_el0_instruction_abort(unsigned int esr)
+{
+	return ESR_ELx_EC(esr) == ESR_ELx_EC_IABT_LOW;
+}
+
 static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 				   struct pt_regs *regs)
 {
@@ -422,6 +464,9 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	int fault, major = 0;
 	unsigned long vm_flags = VM_READ | VM_WRITE;
 	unsigned int mm_flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
+
+	if (notify_page_fault(regs, esr))
+		return 0;
 
 	if (notify_page_fault(regs, esr))
 		return 0;

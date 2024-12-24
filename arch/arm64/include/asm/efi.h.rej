@@ -1,0 +1,23 @@
+--- arch/arm64/include/asm/efi.h
++++ arch/arm64/include/asm/efi.h
+@@ -1,8 +1,11 @@
+ #ifndef _ASM_EFI_H
+ #define _ASM_EFI_H
+ 
++#include <asm/cpufeature.h>
+ #include <asm/io.h>
++#include <asm/mmu_context.h>
+ #include <asm/neon.h>
++#include <asm/tlbflush.h>
+ 
+ #ifdef CONFIG_EFI
+ extern void efi_init(void);
+@@ -10,6 +13,8 @@ extern void efi_init(void);
+ #define efi_init()
+ #endif
+ 
++int efi_create_mapping(struct mm_struct *mm, efi_memory_desc_t *md);
++
+ #define efi_call_virt(f, ...)						\
+ ({									\
+ 	efi_##f##_t *__f;						\

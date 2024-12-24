@@ -267,6 +267,19 @@ static inline void reg_set_seen(struct bpf_jit *jit, u32 b1)
 	_EMIT6(op | rel >> 16, rel & 0xffff);			\
 })
 
+#define EMIT6_PCREL_RILB(op, b, target)				\
+({								\
+	int rel = (target - jit->prg) / 2;			\
+	_EMIT6(op | reg_high(b) << 16 | rel >> 16, rel & 0xffff);	\
+	REG_SET_SEEN(b);					\
+})
+
+#define EMIT6_PCREL_RIL(op, target)				\
+({								\
+	int rel = (target - jit->prg) / 2;			\
+	_EMIT6(op | rel >> 16, rel & 0xffff);			\
+})
+
 #define _EMIT6_IMM(op, imm)					\
 ({								\
 	unsigned int __imm = (imm);				\

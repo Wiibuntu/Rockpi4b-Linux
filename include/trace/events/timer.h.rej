@@ -1,0 +1,15 @@
+--- include/trace/events/timer.h
++++ include/trace/events/timer.h
+@@ -165,10 +179,8 @@ TRACE_EVENT(hrtimer_init,
+ 	),
+ 
+ 	TP_printk("hrtimer=%p clockid=%s mode=%s", __entry->hrtimer,
+-		  __entry->clockid == CLOCK_REALTIME ?
+-			"CLOCK_REALTIME" : "CLOCK_MONOTONIC",
+-		  __entry->mode == HRTIMER_MODE_ABS ?
+-			"HRTIMER_MODE_ABS" : "HRTIMER_MODE_REL")
++		  decode_clockid(__entry->clockid),
++		  decode_hrtimer_mode(__entry->mode))
+ );
+ 
+ /**

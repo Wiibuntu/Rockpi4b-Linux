@@ -1783,6 +1783,18 @@ int start_sync_thread(struct netns_ipvs *ipvs, struct ipvs_sync_daemon_cfg *c,
 		mutex_unlock(&ipvs->sync_mutex);
 	}
 
+	/* Do not hold one mutex and then to block on another */
+	for (;;) {
+		rtnl_lock();
+		if (mutex_trylock(&ipvs->sync_mutex))
+			break;
+		rtnl_unlock();
+		mutex_lock(&ipvs->sync_mutex);
+		if (rtnl_trylock())
+			break;
+		mutex_unlock(&ipvs->sync_mutex);
+	}
+
 	if (!ipvs->sync_state) {
 		count = clamp(sysctl_sync_ports(ipvs), 1, IPVS_SYNC_PORTS_MAX);
 		ipvs->threads_mask = count - 1;

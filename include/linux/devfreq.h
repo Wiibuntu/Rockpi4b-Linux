@@ -33,6 +33,17 @@
 #define	DEVFREQ_PRECHANGE		(0)
 #define DEVFREQ_POSTCHANGE		(1)
 
+/* DEVFREQ notifier interface */
+#define DEVFREQ_TRANSITION_NOTIFIER	(0)
+#define DEVFREQ_POLICY_NOTIFIER		(1)
+
+/* Transition notifiers of DEVFREQ_TRANSITION_NOTIFIER */
+#define	DEVFREQ_PRECHANGE		(0)
+#define DEVFREQ_POSTCHANGE		(1)
+
+/* Policy Notifiers  */
+#define	DEVFREQ_ADJUST			(0)
+
 struct devfreq;
 struct devfreq_governor;
 
@@ -226,6 +237,29 @@ extern void devm_devfreq_unregister_notifier(struct device *dev,
 extern struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
 						int index);
 
+/**
+ * devfreq_verify_within_limits() - Adjust a devfreq policy if needed to make
+ *                                  sure its min/max values are within a
+ *                                  specified range.
+ * @policy:	the policy
+ * @min:	the minimum frequency
+ * @max:	the maximum frequency
+ */
+static inline void devfreq_verify_within_limits(struct devfreq_policy *policy,
+		unsigned int min, unsigned int max)
+{
+	if (policy->min < min)
+		policy->min = min;
+	if (policy->max < min)
+		policy->max = min;
+	if (policy->min > max)
+		policy->min = max;
+	if (policy->max > max)
+		policy->max = max;
+	if (policy->min > policy->max)
+		policy->min = policy->max;
+}
+
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND)
 /**
  * struct devfreq_simple_ondemand_data - void *data fed to struct devfreq
@@ -378,6 +412,46 @@ static inline struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
 							int index)
 {
 	return ERR_PTR(-ENODEV);
+}
+
+static inline int devfreq_register_notifier(struct devfreq *devfreq,
+					struct notifier_block *nb,
+					unsigned int list)
+{
+	return 0;
+}
+
+static inline int devfreq_unregister_notifier(struct devfreq *devfreq,
+					struct notifier_block *nb,
+					unsigned int list)
+{
+	return 0;
+}
+
+static inline int devm_devfreq_register_notifier(struct device *dev,
+				struct devfreq *devfreq,
+				struct notifier_block *nb,
+				unsigned int list)
+{
+	return 0;
+}
+
+static inline void devm_devfreq_unregister_notifier(struct device *dev,
+				struct devfreq *devfreq,
+				struct notifier_block *nb,
+				unsigned int list)
+{
+}
+
+static inline struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
+							int index)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline void devfreq_verify_within_limits(struct devfreq_policy *policy,
+		unsigned int min, unsigned int max)
+{
 }
 
 static inline int devfreq_update_stats(struct devfreq *df)

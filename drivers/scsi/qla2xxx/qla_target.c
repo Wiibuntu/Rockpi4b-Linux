@@ -3539,7 +3539,7 @@ static int __qlt_send_term_exchange(struct qla_qpair *qpair,
 
 	qpair->tgt_counters.num_term_xchg_sent++;
 	pkt->entry_count = 1;
-	pkt->handle = QLA_TGT_SKIP_HANDLE | CTIO_COMPLETION_HANDLE_MARK;
+	pkt->handle = QLA_TGT_SKIP_HANDLE;
 
 	ctio24 = (struct ctio7_to_24xx *)pkt;
 	ctio24->entry_type = CTIO_TYPE7;

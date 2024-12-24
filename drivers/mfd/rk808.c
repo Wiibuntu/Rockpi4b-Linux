@@ -1,7 +1,7 @@
 /*
  * MFD core driver for Rockchip RK808/RK818
  *
- * Copyright (c) 2014, Fuzhou Rockchip Electronics Co., Ltd
+ * Copyright (c) 2014-2018, Fuzhou Rockchip Electronics Co., Ltd
  *
  * Author: Chris Zhong <zyw@rock-chips.com>
  * Author: Zhang Qing <zhangqing@rock-chips.com>
@@ -78,12 +78,197 @@ static const struct regmap_config rk805_regmap_config = {
 	.volatile_reg = rk808_is_volatile_reg,
 };
 
+static bool rk817_is_volatile_reg(struct device *dev, unsigned int reg)
+{
+	/*
+	 * Notes:
+	 * - Technically the ROUND_30s bit makes RTC_CTRL_REG volatile, but
+	 *   we don't use that feature.  It's better to cache.
+	 * - It's unlikely we care that RK808_DEVCTRL_REG is volatile since
+	 *   bits are cleared in case when we shutoff anyway, but better safe.
+	 */
+
+	switch (reg) {
+	case RK817_SECONDS_REG ... RK817_WEEKS_REG:
+	case RK817_RTC_STATUS_REG:
+	case RK817_INT_STS_REG0:
+	case RK817_INT_STS_REG1:
+	case RK817_INT_STS_REG2:
+	case RK817_SYS_STS:
+		return true;
+	}
+
+	return true;
+}
+
+static int rk808_shutdown(struct regmap *regmap)
+{
+	int ret;
+
+	ret = regmap_update_bits(regmap,
+				 RK808_DEVCTRL_REG,
+				 DEV_OFF_RST, DEV_OFF_RST);
+	return ret;
+}
+
+static int rk816_shutdown(struct regmap *regmap)
+{
+	int ret;
+
+	ret = regmap_update_bits(regmap,
+				 RK816_DEV_CTRL_REG,
+				 DEV_OFF, DEV_OFF);
+	return ret;
+}
+
+static int rk818_shutdown(struct regmap *regmap)
+{
+	int ret;
+
+	ret = regmap_update_bits(regmap,
+				 RK818_DEVCTRL_REG,
+				 DEV_OFF, DEV_OFF);
+	return ret;
+}
+
+static int rk805_shutdown_prepare(struct rk808 *rk808)
+{
+	int ret;
+
+	/* close rtc int when power off */
+	regmap_update_bits(rk808->regmap,
+			   RK808_INT_STS_MSK_REG1,
+			   (0x3 << 5), (0x3 << 5));
+	regmap_update_bits(rk808->regmap,
+			   RK808_RTC_INT_REG,
+			   (0x3 << 2), (0x0 << 2));
+
+	/* pmic sleep shutdown function */
+	ret = regmap_update_bits(rk808->regmap,
+				 RK805_GPIO_IO_POL_REG,
+				 SLP_SD_MSK, SHUTDOWN_FUN);
+	return ret;
+}
+
+static int rk817_shutdown_prepare(struct rk808 *rk808)
+{
+	int ret;
+
+	/* close rtc int when power off */
+	regmap_update_bits(rk808->regmap,
+			   RK817_INT_STS_MSK_REG1,
+			   (0x3 << 5), (0x3 << 5));
+	regmap_update_bits(rk808->regmap,
+			   RK817_RTC_INT_REG,
+			   (0x3 << 2), (0x0 << 2));
+
+	if (rk808->pins && rk808->pins->p && rk808->pins->power_off) {
+		ret = regmap_update_bits(rk808->regmap,
+					 RK817_SYS_CFG(3),
+					 RK817_SLPPIN_FUNC_MSK,
+					 SLPPIN_NULL_FUN);
+		if (ret) {
+			pr_err("shutdown: config SLPPIN_NULL_FUN error!\n");
+			return 0;
+		}
+
+		ret = regmap_update_bits(rk808->regmap,
+					 RK817_SYS_CFG(3),
+					 RK817_SLPPOL_MSK,
+					 RK817_SLPPOL_H);
+		if (ret) {
+			pr_err("shutdown: config RK817_SLPPOL_H error!\n");
+			return 0;
+		}
+		ret = pinctrl_select_state(rk808->pins->p,
+					   rk808->pins->power_off);
+		if (ret)
+			pr_info("%s:failed to activate pwroff state\n",
+				__func__);
+		else
+			return ret;
+	}
+
+	/* pmic sleep shutdown function */
+	ret = regmap_update_bits(rk808->regmap,
+				 RK817_SYS_CFG(3),
+				 RK817_SLPPIN_FUNC_MSK, SLPPIN_DN_FUN);
+	return ret;
+}
+
+static bool rk818_is_volatile_reg(struct device *dev, unsigned int reg)
+{
+	/*
+	 * Notes:
+	 * - Technically the ROUND_30s bit makes RTC_CTRL_REG volatile, but
+	 *   we don't use that feature.  It's better to cache.
+	 * - It's unlikely we care that RK808_DEVCTRL_REG is volatile since
+	 *   bits are cleared in case when we shutoff anyway, but better safe.
+	 */
+
+	switch (reg) {
+	case RK808_SECONDS_REG ... RK808_WEEKS_REG:
+	case RK808_RTC_STATUS_REG:
+	case RK808_VB_MON_REG:
+	case RK808_THERMAL_REG:
+	case RK808_DCDC_EN_REG:
+	case RK808_LDO_EN_REG:
+	case RK808_DCDC_UV_STS_REG:
+	case RK808_LDO_UV_STS_REG:
+	case RK808_DCDC_PG_REG:
+	case RK808_LDO_PG_REG:
+	case RK808_DEVCTRL_REG:
+	case RK808_INT_STS_REG1:
+	case RK808_INT_STS_REG2:
+	case RK808_INT_STS_MSK_REG1:
+	case RK808_INT_STS_MSK_REG2:
+	case RK816_INT_STS_REG1:
+	case RK816_INT_STS_MSK_REG1:
+	case RK818_SUP_STS_REG ... RK818_SAVE_DATA19:
+		return true;
+	}
+
+	return false;
+}
+
 static const struct regmap_config rk808_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
 	.max_register = RK808_IO_POL_REG,
 	.cache_type = REGCACHE_RBTREE,
 	.volatile_reg = rk808_is_volatile_reg,
+};
+
+static const struct regmap_config rk805_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = RK805_OFF_SOURCE_REG,
+	.cache_type = REGCACHE_RBTREE,
+	.volatile_reg = rk808_is_volatile_reg,
+};
+
+static const struct regmap_config rk816_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = RK816_DATA18_REG,
+	.cache_type = REGCACHE_RBTREE,
+	.volatile_reg = rk818_is_volatile_reg,
+};
+
+static const struct regmap_config rk818_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = RK818_SAVE_DATA19,
+	.cache_type = REGCACHE_RBTREE,
+	.volatile_reg = rk818_is_volatile_reg,
+};
+
+static const struct regmap_config rk817_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = RK817_GPIO_INT_CFG,
+	.cache_type = REGCACHE_NONE,
+	.volatile_reg = rk817_is_volatile_reg,
 };
 
 static struct resource rtc_resources[] = {
@@ -119,6 +304,61 @@ static const struct mfd_cell rk805s[] = {
 	{	.name = "rk805-pwrkey",
 		.num_resources = ARRAY_SIZE(rk805_key_resources),
 		.resources = &rk805_key_resources[0],
+	},
+};
+
+static struct resource rk817_rtc_resources[] = {
+	{
+		.start  = RK817_IRQ_RTC_ALARM,
+		.end    = RK817_IRQ_RTC_ALARM,
+		.flags  = IORESOURCE_IRQ,
+	}
+};
+
+static struct resource rk816_rtc_resources[] = {
+	{
+		.start  = RK816_IRQ_RTC_ALARM,
+		.end    = RK816_IRQ_RTC_ALARM,
+		.flags  = IORESOURCE_IRQ,
+	}
+};
+
+static struct resource rk805_pwrkey_resources[] = {
+	{
+		.start  = RK805_IRQ_PWRON_RISE,
+		.end    = RK805_IRQ_PWRON_RISE,
+		.flags  = IORESOURCE_IRQ,
+	},
+	{
+		.start  = RK805_IRQ_PWRON_FALL,
+		.end    = RK805_IRQ_PWRON_FALL,
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct resource rk817_pwrkey_resources[] = {
+	{
+		.start  = RK817_IRQ_PWRON_RISE,
+		.end    = RK817_IRQ_PWRON_RISE,
+		.flags  = IORESOURCE_IRQ,
+	},
+	{
+		.start  = RK817_IRQ_PWRON_FALL,
+		.end    = RK817_IRQ_PWRON_FALL,
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct resource rk816_pwrkey_resources[] = {
+	{
+		.start  = RK816_IRQ_PWRON_RISE,
+		.end    = RK816_IRQ_PWRON_RISE,
+		.flags  = IORESOURCE_IRQ,
+	},
+	{
+		.start  = RK816_IRQ_PWRON_FALL,
+		.end    = RK816_IRQ_PWRON_FALL,
+		.flags  = IORESOURCE_IRQ,
 	},
 };
 
@@ -580,6 +820,7 @@ static struct i2c_driver rk808_i2c_driver = {
 	.driver = {
 		.name = "rk808",
 		.of_match_table = rk808_of_match,
+		.pm = &rk808_pm_ops,
 	},
 	.probe    = rk808_probe,
 	.remove   = rk808_remove,

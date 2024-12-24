@@ -930,7 +930,8 @@ void ieee80211_free_sta_keys(struct ieee80211_local *local,
 		ieee80211_key_replace(key->sdata, key->sta,
 				key->conf.flags & IEEE80211_KEY_FLAG_PAIRWISE,
 				key, NULL);
-		__ieee80211_key_destroy(key, true);
+		__ieee80211_key_destroy(key, key->sdata->vif.type ==
+					NL80211_IFTYPE_STATION);
 	}
 
 	for (i = 0; i < NUM_DEFAULT_KEYS; i++) {
@@ -940,7 +941,8 @@ void ieee80211_free_sta_keys(struct ieee80211_local *local,
 		ieee80211_key_replace(key->sdata, key->sta,
 				key->conf.flags & IEEE80211_KEY_FLAG_PAIRWISE,
 				key, NULL);
-		__ieee80211_key_destroy(key, true);
+		__ieee80211_key_destroy(key, key->sdata->vif.type ==
+					NL80211_IFTYPE_STATION);
 	}
 
 	mutex_unlock(&local->key_mtx);

@@ -38,6 +38,8 @@
 #define IPV4_MAX_PMTU		65535U		/* RFC 2675, Section 5.1 */
 #define IPV4_MIN_MTU		68			/* RFC 791 */
 
+#define IPV4_MIN_MTU		68			/* RFC 791 */
+
 struct sock;
 
 struct inet_skb_parm {
@@ -344,6 +346,13 @@ static inline int ip_mtu_locked(const struct dst_entry *dst)
 	return rt->rt_mtu_locked || dst_metric_locked(dst, RTAX_MTU);
 }
 
+static inline int ip_mtu_locked(const struct dst_entry *dst)
+{
+	const struct rtable *rt = (const struct rtable *)dst;
+
+	return rt->rt_mtu_locked || dst_metric_locked(dst, RTAX_MTU);
+}
+
 static inline
 int ip_dont_fragment(const struct sock *sk, const struct dst_entry *dst)
 {
@@ -611,6 +620,8 @@ static inline int ip_options_echo(struct net *net, struct ip_options *dopt,
 }
 
 void ip_options_fragment(struct sk_buff *skb);
+int __ip_options_compile(struct net *net, struct ip_options *opt,
+			 struct sk_buff *skb, __be32 *info);
 int ip_options_compile(struct net *net, struct ip_options *opt,
 		       struct sk_buff *skb);
 int ip_options_get(struct net *net, struct ip_options_rcu **optp,

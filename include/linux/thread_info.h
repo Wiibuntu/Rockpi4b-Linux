@@ -144,6 +144,31 @@ check_copy_size(const void *addr, size_t bytes, bool is_source)
 static inline void arch_setup_new_exec(void) { }
 #endif
 
+#ifndef CONFIG_HAVE_ARCH_WITHIN_STACK_FRAMES
+static inline int arch_within_stack_frames(const void * const stack,
+					   const void * const stackend,
+					   const void *obj, unsigned long len)
+{
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_HARDENED_USERCOPY
+extern void __check_object_size(const void *ptr, unsigned long n,
+					bool to_user);
+
+static __always_inline void check_object_size(const void *ptr, unsigned long n,
+					      bool to_user)
+{
+	if (!__builtin_constant_p(n))
+		__check_object_size(ptr, n, to_user);
+}
+#else
+static inline void check_object_size(const void *ptr, unsigned long n,
+				     bool to_user)
+{ }
+#endif /* CONFIG_HARDENED_USERCOPY */
+
 #endif	/* __KERNEL__ */
 
 #endif /* _LINUX_THREAD_INFO_H */

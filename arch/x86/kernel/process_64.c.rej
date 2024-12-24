@@ -1,0 +1,10 @@
+--- arch/x86/kernel/process_64.c
++++ arch/x86/kernel/process_64.c
+@@ -48,6 +48,7 @@
+ #include <asm/syscalls.h>
+ #include <asm/debugreg.h>
+ #include <asm/switch_to.h>
++#include <asm/xen/hypervisor.h>
+ 
+ asmlinkage extern void ret_from_fork(void);
+ 

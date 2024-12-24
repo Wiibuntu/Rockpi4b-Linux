@@ -108,6 +108,14 @@ Optional properties:
   opp-microvolt-<name> properties, then opp-microvolt property shall be used, if
   present.
 
+- opp-microvolt-<name>: Named opp-microvolt property. This is exactly similar to
+  the above opp-microvolt property, but allows multiple voltage ranges to be
+  provided for the same OPP. At runtime, the platform can pick a <name> and
+  matching opp-microvolt-<name> property will be enabled for all OPPs. If the
+  platform doesn't pick a specific <name> or the <name> doesn't match with any
+  opp-microvolt-<name> properties, then opp-microvolt property shall be used, if
+  present.
+
 - opp-microamp: The maximum current drawn by the device in microamperes
   considering system specific parameters (such as transients, process, aging,
   maximum operating temperature range etc.) as necessary. This may be used to
@@ -122,6 +130,9 @@ Optional properties:
   provide any provisions to relate the values to their power supplies or the
   order in which the supplies need to be configured and that is left for the
   implementation specific binding.
+
+- opp-microamp-<name>: Named opp-microamp property. Similar to
+  opp-microvolt-<name> property, but for microamp instead.
 
 - opp-microamp-<name>: Named opp-microamp property. Similar to
   opp-microvolt-<name> property, but for microamp instead.

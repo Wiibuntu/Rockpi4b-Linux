@@ -351,7 +351,6 @@ static noinline int btrfs_ioctl_fitrim(struct file *file, void __user *arg)
 	struct fstrim_range range;
 	u64 minlen = ULLONG_MAX;
 	u64 num_devices = 0;
-	u64 total_bytes = btrfs_super_total_bytes(fs_info->super_copy);
 	int ret;
 
 	if (!capable(CAP_SYS_ADMIN))
@@ -375,11 +374,15 @@ static noinline int btrfs_ioctl_fitrim(struct file *file, void __user *arg)
 		return -EOPNOTSUPP;
 	if (copy_from_user(&range, arg, sizeof(range)))
 		return -EFAULT;
-	if (range.start > total_bytes ||
-	    range.len < fs_info->sb->s_blocksize)
+
+	/*
+	 * NOTE: Don't truncate the range using super->total_bytes.  Bytenr of
+	 * block group is in the logical address space, which can be any
+	 * sectorsize aligned bytenr in  the range [0, U64_MAX].
+	 */
+	if (range.len < fs_info->sb->s_blocksize)
 		return -EINVAL;
 
-	range.len = min(range.len, total_bytes - range.start);
 	range.minlen = max(range.minlen, minlen);
 	ret = btrfs_trim_fs(fs_info, &range);
 	if (ret < 0)
@@ -542,6 +545,10 @@ static noinline int create_subvol(struct inode *dir,
 		btrfs_abort_transaction(trans, ret);
 		goto fail;
 	}
+
+	mutex_lock(&new_root->objectid_mutex);
+	new_root->highest_objectid = new_dirid;
+	mutex_unlock(&new_root->objectid_mutex);
 
 	mutex_lock(&new_root->objectid_mutex);
 	new_root->highest_objectid = new_dirid;
@@ -1582,6 +1589,9 @@ static noinline int btrfs_ioctl_snap_create_transid(struct file *file,
 	if (!S_ISDIR(file_inode(file)->i_mode))
 		return -ENOTDIR;
 
+	if (!S_ISDIR(file_inode(file)->i_mode))
+		return -ENOTDIR;
+
 	ret = mnt_want_write_file(file);
 	if (ret)
 		goto out;
@@ -1642,6 +1652,9 @@ static noinline int btrfs_ioctl_snap_create(struct file *file,
 	if (!S_ISDIR(file_inode(file)->i_mode))
 		return -ENOTDIR;
 
+	if (!S_ISDIR(file_inode(file)->i_mode))
+		return -ENOTDIR;
+
 	vol_args = memdup_user(arg, sizeof(*vol_args));
 	if (IS_ERR(vol_args))
 		return PTR_ERR(vol_args);
@@ -1664,6 +1677,9 @@ static noinline int btrfs_ioctl_snap_create_v2(struct file *file,
 	u64 *ptr = NULL;
 	bool readonly = false;
 	struct btrfs_qgroup_inherit *inherit = NULL;
+
+	if (!S_ISDIR(file_inode(file)->i_mode))
+		return -ENOTDIR;
 
 	if (!S_ISDIR(file_inode(file)->i_mode))
 		return -ENOTDIR;
@@ -2316,6 +2332,9 @@ static noinline int btrfs_ioctl_snap_destroy(struct file *file,
 	int namelen;
 	int ret;
 	int err = 0;
+
+	if (!S_ISDIR(dir->i_mode))
+		return -ENOTDIR;
 
 	if (!S_ISDIR(dir->i_mode))
 		return -ENOTDIR;
@@ -3840,15 +3859,30 @@ static noinline int btrfs_clone_files(struct file *file, struct file *file_src,
 		inode_lock(src);
 	}
 
+	/* don't make the dst file partly checksummed */
+	if ((BTRFS_I(src)->flags & BTRFS_INODE_NODATASUM) !=
+	    (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM)) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	/* determine range to clone */
 	ret = -EINVAL;
 	if (off + len > src->i_size || off + len < off)
 		goto out_unlock;
 	if (len == 0)
 		olen = len = src->i_size - off;
-	/* if we extend to eof, continue to block boundary */
-	if (off + len == src->i_size)
+	/*
+	 * If we extend to eof, continue to block boundary if and only if the
+	 * destination end offset matches the destination file's size, otherwise
+	 * we would be corrupting data by placing the eof block into the middle
+	 * of a file.
+	 */
+	if (off + len == src->i_size) {
+		if (!IS_ALIGNED(len, bs) && destoff + len < inode->i_size)
+			goto out_unlock;
 		len = ALIGN(src->i_size, bs) - off;
+	}
 
 	if (len == 0) {
 		ret = 0;
@@ -3962,6 +3996,10 @@ static long btrfs_ioctl_default_subvol(struct file *file, void __user *argp)
 	new_root = btrfs_read_fs_root_no_name(fs_info, &location);
 	if (IS_ERR(new_root)) {
 		ret = PTR_ERR(new_root);
+		goto out;
+	}
+	if (!is_fstree(new_root->objectid)) {
+		ret = -ENOENT;
 		goto out;
 	}
 	if (!is_fstree(new_root->objectid)) {

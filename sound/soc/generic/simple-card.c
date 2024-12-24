@@ -164,6 +164,14 @@ static int asoc_simple_card_hw_params(struct snd_pcm_substream *substream,
 		if (ret && ret != -ENOTSUPP)
 			goto err;
 	}
+
+	if (priv->codec_hp_det)
+		snd_soc_card_jack_new(rtd->card, "Headphones",
+				      SND_JACK_HEADPHONE,
+				      &simple_card_hp_jack,
+				      simple_card_hp_jack_pins,
+				      ARRAY_SIZE(simple_card_hp_jack_pins));
+
 	return 0;
 err:
 	return ret;

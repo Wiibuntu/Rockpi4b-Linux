@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/segment.h
  *
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/blkdev.h>
 #include <linux/backing-dev.h>
@@ -452,6 +449,7 @@ static inline void __set_test_and_free(struct f2fs_sb_info *sbi,
 				free_i->free_sections++;
 		}
 	}
+skip_free:
 	spin_unlock(&free_i->segmap_lock);
 }
 
@@ -705,6 +703,12 @@ static inline pgoff_t current_sit_addr(struct f2fs_sb_info *sbi,
 	block_t blk_addr = sit_i->sit_base_addr + offset;
 
 	check_seg_range(sbi, start);
+
+#ifdef CONFIG_F2FS_CHECK_FS
+	if (f2fs_test_bit(offset, sit_i->sit_bitmap) !=
+			f2fs_test_bit(offset, sit_i->sit_bitmap_mir))
+		f2fs_bug_on(sbi, 1);
+#endif
 
 #ifdef CONFIG_F2FS_CHECK_FS
 	if (f2fs_test_bit(offset, sit_i->sit_bitmap) !=

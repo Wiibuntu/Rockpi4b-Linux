@@ -3429,6 +3429,9 @@ int tipc_nl_publ_dump(struct sk_buff *skb, struct netlink_callback *cb)
 		if (!attrs[TIPC_NLA_SOCK])
 			return -EINVAL;
 
+		if (!attrs[TIPC_NLA_SOCK])
+			return -EINVAL;
+
 		err = nla_parse_nested(sock, TIPC_NLA_SOCK_MAX,
 				       attrs[TIPC_NLA_SOCK],
 				       tipc_nl_sock_policy, NULL);

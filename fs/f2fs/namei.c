@@ -747,7 +747,7 @@ static int __f2fs_tmpfile(struct inode *dir, struct dentry *dentry,
 	}
 
 	f2fs_lock_op(sbi);
-	err = acquire_orphan_inode(sbi);
+	err = f2fs_acquire_orphan_inode(sbi);
 	if (err)
 		goto out;
 

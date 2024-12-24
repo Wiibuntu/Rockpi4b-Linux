@@ -112,6 +112,11 @@ static void __init cps_smp_setup(void)
 		write_gcr_bev_base(core_entry);
 	}
 
+	if (mips_cm_revision() >= CM_REV_CM3) {
+		core_entry = CKSEG1ADDR((unsigned long)mips_cps_core_entry);
+		write_gcr_bev_base(core_entry);
+	}
+
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
 	if (cpu_has_fpu)

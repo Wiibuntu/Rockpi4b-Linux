@@ -567,7 +567,23 @@ asmlinkage __visible void __init start_kernel(void)
 	build_all_zonelists(NULL);
 	page_alloc_init();
 
+#ifdef CONFIG_ARCH_ROCKCHIP
+	{
+		const char *s = boot_command_line;
+		const char *e = &boot_command_line[strlen(boot_command_line)];
+		int n =
+		    pr_notice("Kernel command line: %s\n", boot_command_line);
+		n -= strlen("Kernel command line: ");
+		s += n;
+		/* command line maybe too long to print one time */
+		while (n > 0 && s < e) {
+			n = pr_cont("%s\n", s);
+			s += n;
+		}
+	}
+#else
 	pr_notice("Kernel command line: %s\n", boot_command_line);
+#endif
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
@@ -1054,6 +1070,28 @@ static inline void mark_readonly(void)
 }
 #endif
 
+#ifdef CONFIG_DEBUG_RODATA
+static bool rodata_enabled = true;
+static int __init set_debug_rodata(char *str)
+{
+	return strtobool(str, &rodata_enabled);
+}
+__setup("rodata=", set_debug_rodata);
+
+static void mark_readonly(void)
+{
+	if (rodata_enabled)
+		mark_rodata_ro();
+	else
+		pr_info("Kernel memory protection disabled.\n");
+}
+#else
+static inline void mark_readonly(void)
+{
+	pr_warn("This architecture does not have kernel memory protection.\n");
+}
+#endif
+
 static int __ref kernel_init(void *unused)
 {
 	int ret;
@@ -1133,6 +1171,10 @@ static noinline void __init kernel_init_freeable(void)
 	page_alloc_init_late();
 
 	do_basic_setup();
+
+#if IS_BUILTIN(CONFIG_INITRD_ASYNC)
+	async_synchronize_full();
+#endif
 
 	/* Open the /dev/console on the rootfs, this should never fail */
 	if (ksys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)

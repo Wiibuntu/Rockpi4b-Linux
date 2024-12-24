@@ -1,0 +1,10 @@
+--- fs/ext2/ext2.h
++++ fs/ext2/ext2.h
+@@ -113,6 +115,7 @@ struct ext2_sb_info {
+ 	 * of the mount options.
+ 	 */
+ 	spinlock_t s_lock;
++	struct mb2_cache *s_mb_cache;
+ };
+ 
+ static inline spinlock_t *

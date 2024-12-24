@@ -685,6 +685,7 @@ static int __init clocksource_done_booting(void)
 	 */
 	__clocksource_watchdog_kthread();
 	clocksource_select();
+	clocksource_select_watchdog(false);
 	mutex_unlock(&clocksource_mutex);
 	return 0;
 }

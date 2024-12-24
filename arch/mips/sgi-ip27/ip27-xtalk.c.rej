@@ -1,0 +1,11 @@
+--- arch/mips/sgi-ip27/ip27-xtalk.c
++++ arch/mips/sgi-ip27/ip27-xtalk.c
+@@ -67,7 +67,7 @@ static int xbow_probe(nasid_t nasid)
+ 		return -ENODEV;
+ 
+ 	/*
+-	 * Okay, here's a xbow. Lets arbitrate and find
++	 * Okay, here's a xbow. Let's arbitrate and find
+ 	 * out if we should initialize it. Set enabled
+ 	 * hub connected at highest or lowest widget as
+ 	 * master.

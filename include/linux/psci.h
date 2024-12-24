@@ -36,6 +36,9 @@ enum smccc_version {
 	SMCCC_VERSION_1_1,
 };
 
+int psci_cpu_init_idle(unsigned int cpu);
+int psci_cpu_suspend_enter(unsigned long index);
+
 struct psci_operations {
 	u32 (*get_version)(void);
 	int (*cpu_suspend)(u32 state, unsigned long entry_point);

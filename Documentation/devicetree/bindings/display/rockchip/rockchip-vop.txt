@@ -27,6 +27,7 @@ Required properties:
 		aclk_vop: for ddr buffer transfer.
 		hclk_vop: for ahb bus to R/W the phy regs.
 		dclk_vop: pixel clock.
+		dclk_source: optinal, dclk sources from display plls.
 
 - resets: Must contain an entry for each entry in reset-names.
   See ../reset/reset.txt for details.
@@ -44,7 +45,8 @@ Example:
 SoC specific DT entry:
 	vopb: vopb@ff930000 {
 		compatible = "rockchip,rk3288-vop";
-		reg = <0xff930000 0x19c>;
+		reg = <0xff930000 0x19c>, <0xff931000 0x1000>;
+		reg-names = "regs", "gamma_lut";
 		interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cru ACLK_VOP0>, <&cru DCLK_VOP0>, <&cru HCLK_VOP0>;
 		clock-names = "aclk_vop", "dclk_vop", "hclk_vop";

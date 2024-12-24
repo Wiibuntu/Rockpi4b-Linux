@@ -50,6 +50,8 @@ static DEFINE_MUTEX(poweroff_lock);
 static atomic_t in_suspend;
 static bool power_off_triggered;
 
+static atomic_t in_suspend;
+
 static struct thermal_governor *def_governor;
 
 /*
@@ -414,6 +416,10 @@ static void handle_thermal_trip(struct thermal_zone_device *tz, int trip)
 	if (test_bit(trip, &tz->trips_disabled))
 		return;
 
+	/* Ignore disabled trip points */
+	if (test_bit(trip, &tz->trips_disabled))
+		return;
+
 	tz->ops->get_trip_type(tz, trip, &type);
 
 	if (type == THERMAL_TRIP_CRITICAL || type == THERMAL_TRIP_HOT)
@@ -425,6 +431,47 @@ static void handle_thermal_trip(struct thermal_zone_device *tz, int trip)
 	 * So, start monitoring again.
 	 */
 	monitor_thermal_zone(tz);
+}
+
+static void thermal_zone_set_trips(struct thermal_zone_device *tz)
+{
+	int low = -INT_MAX;
+	int high = INT_MAX;
+	int trip_temp, hysteresis;
+	int temp = tz->temperature;
+	int i, ret;
+
+	if (!tz->ops->set_trips)
+		return;
+
+	for (i = 0; i < tz->trips; i++) {
+		int trip_low;
+
+		tz->ops->get_trip_temp(tz, i, &trip_temp);
+		tz->ops->get_trip_hyst(tz, i, &hysteresis);
+
+		trip_low = trip_temp - hysteresis;
+
+		if (trip_low < temp && trip_low > low)
+			low = trip_low;
+
+		if (trip_temp > temp && trip_temp < high)
+			high = trip_temp;
+	}
+
+	/* No need to change trip points */
+	if (tz->prev_low_trip == low && tz->prev_high_trip == high)
+		return;
+
+	tz->prev_low_trip = low;
+	tz->prev_high_trip = high;
+
+	dev_dbg(&tz->device, "new temperature boundaries: %d < x < %d\n",
+			low, high);
+
+	ret = tz->ops->set_trips(tz, low, high);
+	if (ret)
+		dev_err(&tz->device, "Failed to set trips: %d\n", ret);
 }
 
 static void update_temperature(struct thermal_zone_device *tz)
@@ -590,6 +637,15 @@ int power_actor_set_power(struct thermal_cooling_device *cdev,
 		return -EINVAL;
 
 	ret = cdev->ops->power2state(cdev, instance->tz, power, &state);
+#ifdef CONFIG_ARCH_ROCKCHIP
+	if (ret)
+		state = THERMAL_CSTATE_INVALID;
+	rockchip_system_monitor_adjust_cdev_state(cdev,
+						  instance->tz->temperature,
+						  &state);
+	if (state == THERMAL_CSTATE_INVALID)
+		ret = -EINVAL;
+#endif
 	if (ret)
 		return ret;
 
@@ -997,6 +1053,12 @@ __thermal_cooling_device_register(struct device_node *np,
 						   THERMAL_EVENT_UNSPECIFIED);
 	mutex_unlock(&thermal_list_lock);
 
+	mutex_lock(&thermal_list_lock);
+	list_for_each_entry(pos, &thermal_tz_list, node)
+		if (atomic_cmpxchg(&pos->need_update, 1, 0))
+			thermal_zone_device_update(pos);
+	mutex_unlock(&thermal_list_lock);
+
 	return cdev;
 }
 
@@ -1222,6 +1284,11 @@ thermal_zone_device_register(const char *type, int trips, int mask,
 	tz->trips = trips;
 	tz->passive_delay = passive_delay;
 	tz->polling_delay = polling_delay;
+	tz->prev_low_trip = INT_MAX;
+	tz->prev_high_trip = -INT_MAX;
+
+	/* A new thermal zone needs to be updated anyway. */
+	atomic_set(&tz->need_update, 1);
 
 	/* sys I/F */
 	/* Add nodes that are always present via .groups */
@@ -1519,6 +1586,36 @@ static struct notifier_block thermal_pm_nb = {
 	.notifier_call = thermal_pm_notify,
 };
 
+static int thermal_pm_notify(struct notifier_block *nb,
+				unsigned long mode, void *_unused)
+{
+	struct thermal_zone_device *tz;
+
+	switch (mode) {
+	case PM_HIBERNATION_PREPARE:
+	case PM_RESTORE_PREPARE:
+	case PM_SUSPEND_PREPARE:
+		atomic_set(&in_suspend, 1);
+		break;
+	case PM_POST_HIBERNATION:
+	case PM_POST_RESTORE:
+	case PM_POST_SUSPEND:
+		atomic_set(&in_suspend, 0);
+		list_for_each_entry(tz, &thermal_tz_list, node) {
+			thermal_zone_device_reset(tz);
+			thermal_zone_device_update(tz);
+		}
+		break;
+	default:
+		break;
+	}
+	return 0;
+}
+
+static struct notifier_block thermal_pm_nb = {
+	.notifier_call = thermal_pm_notify,
+};
+
 static int __init thermal_init(void)
 {
 	int result;
@@ -1539,6 +1636,11 @@ static int __init thermal_init(void)
 	result = of_parse_thermal_zones();
 	if (result)
 		goto exit_netlink;
+
+	result = register_pm_notifier(&thermal_pm_nb);
+	if (result)
+		pr_warn("Thermal: Can not register suspend notifier, return %d\n",
+			result);
 
 	result = register_pm_notifier(&thermal_pm_nb);
 	if (result)

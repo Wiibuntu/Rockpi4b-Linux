@@ -304,19 +304,139 @@ static struct proto_ops algif_skcipher_ops_nokey = {
 	.poll		=	af_alg_poll,
 };
 
+static int skcipher_check_key(struct socket *sock)
+{
+	int err = 0;
+	struct sock *psk;
+	struct alg_sock *pask;
+	struct skcipher_tfm *tfm;
+	struct sock *sk = sock->sk;
+	struct alg_sock *ask = alg_sk(sk);
+
+	lock_sock(sk);
+	if (ask->refcnt)
+		goto unlock_child;
+
+	psk = ask->parent;
+	pask = alg_sk(ask->parent);
+	tfm = pask->private;
+
+	err = -ENOKEY;
+	lock_sock_nested(psk, SINGLE_DEPTH_NESTING);
+	if (!tfm->has_key)
+		goto unlock;
+
+	if (!pask->refcnt++)
+		sock_hold(psk);
+
+	ask->refcnt = 1;
+	sock_put(psk);
+
+	err = 0;
+
+unlock:
+	release_sock(psk);
+unlock_child:
+	release_sock(sk);
+
+	return err;
+}
+
+static int skcipher_sendmsg_nokey(struct socket *sock, struct msghdr *msg,
+				  size_t size)
+{
+	int err;
+
+	err = skcipher_check_key(sock);
+	if (err)
+		return err;
+
+	return skcipher_sendmsg(sock, msg, size);
+}
+
+static ssize_t skcipher_sendpage_nokey(struct socket *sock, struct page *page,
+				       int offset, size_t size, int flags)
+{
+	int err;
+
+	err = skcipher_check_key(sock);
+	if (err)
+		return err;
+
+	return skcipher_sendpage(sock, page, offset, size, flags);
+}
+
+static int skcipher_recvmsg_nokey(struct socket *sock, struct msghdr *msg,
+				  size_t ignored, int flags)
+{
+	int err;
+
+	err = skcipher_check_key(sock);
+	if (err)
+		return err;
+
+	return skcipher_recvmsg(sock, msg, ignored, flags);
+}
+
+static struct proto_ops algif_skcipher_ops_nokey = {
+	.family		=	PF_ALG,
+
+	.connect	=	sock_no_connect,
+	.socketpair	=	sock_no_socketpair,
+	.getname	=	sock_no_getname,
+	.ioctl		=	sock_no_ioctl,
+	.listen		=	sock_no_listen,
+	.shutdown	=	sock_no_shutdown,
+	.getsockopt	=	sock_no_getsockopt,
+	.mmap		=	sock_no_mmap,
+	.bind		=	sock_no_bind,
+	.accept		=	sock_no_accept,
+	.setsockopt	=	sock_no_setsockopt,
+
+	.release	=	af_alg_release,
+	.sendmsg	=	skcipher_sendmsg_nokey,
+	.sendpage	=	skcipher_sendpage_nokey,
+	.recvmsg	=	skcipher_recvmsg_nokey,
+	.poll		=	skcipher_poll,
+};
+
 static void *skcipher_bind(const char *name, u32 type, u32 mask)
 {
-	return crypto_alloc_skcipher(name, type, mask);
+	struct skcipher_tfm *tfm;
+	struct crypto_skcipher *skcipher;
+
+	tfm = kzalloc(sizeof(*tfm), GFP_KERNEL);
+	if (!tfm)
+		return ERR_PTR(-ENOMEM);
+
+	skcipher = crypto_alloc_skcipher(name, type, mask);
+	if (IS_ERR(skcipher)) {
+		kfree(tfm);
+		return ERR_CAST(skcipher);
+	}
+
+	tfm->skcipher = skcipher;
+
+	return tfm;
 }
 
 static void skcipher_release(void *private)
 {
-	crypto_free_skcipher(private);
+	struct skcipher_tfm *tfm = private;
+
+	crypto_free_skcipher(tfm->skcipher);
+	kfree(tfm);
 }
 
 static int skcipher_setkey(void *private, const u8 *key, unsigned int keylen)
 {
-	return crypto_skcipher_setkey(private, key, keylen);
+	struct skcipher_tfm *tfm = private;
+	int err;
+
+	err = crypto_skcipher_setkey(tfm->skcipher, key, keylen);
+	tfm->has_key = !err;
+
+	return err;
 }
 
 static void skcipher_sock_destruct(struct sock *sk)

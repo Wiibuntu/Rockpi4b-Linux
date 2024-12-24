@@ -27,6 +27,7 @@
 #include <linux/iio/trigger_consumer.h>
 #include <linux/iio/triggered_buffer.h>
 #include <linux/regmap.h>
+#include <linux/delay.h>
 #include "bmg160.h"
 
 #define BMG160_IRQ_NAME		"bmg160_event"
@@ -51,6 +52,9 @@
 #define BMG160_NO_FILTER		0
 #define BMG160_DEF_BW			100
 #define BMG160_REG_PMU_BW_RES		BIT(7)
+
+#define BMG160_GYRO_REG_RESET		0x14
+#define BMG160_GYRO_RESET_VAL		0xb6
 
 #define BMG160_GYRO_REG_RESET		0x14
 #define BMG160_GYRO_RESET_VAL		0xb6
@@ -238,6 +242,14 @@ static int bmg160_chip_init(struct bmg160_data *data)
 	struct device *dev = regmap_get_device(data->regmap);
 	int ret;
 	unsigned int val;
+
+	/*
+	 * Reset chip to get it in a known good state. A delay of 30ms after
+	 * reset is required according to the datasheet.
+	 */
+	regmap_write(data->regmap, BMG160_GYRO_REG_RESET,
+		     BMG160_GYRO_RESET_VAL);
+	usleep_range(30000, 30700);
 
 	/*
 	 * Reset chip to get it in a known good state. A delay of 30ms after
@@ -495,7 +507,7 @@ static int bmg160_get_temp(struct bmg160_data *data, int *val)
 {
 	struct device *dev = regmap_get_device(data->regmap);
 	int ret;
-	unsigned int raw_val;
+	__le16 raw_val;
 
 	mutex_lock(&data->mutex);
 	ret = bmg160_set_power_state(data, true);
@@ -582,11 +594,10 @@ static int bmg160_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
 		return bmg160_get_filter(data, val);
 	case IIO_CHAN_INFO_SCALE:
-		*val = 0;
 		switch (chan->type) {
 		case IIO_TEMP:
-			*val2 = 500000;
-			return IIO_VAL_INT_PLUS_MICRO;
+			*val = 500;
+			return IIO_VAL_INT;
 		case IIO_ANGL_VEL:
 		{
 			int i;
@@ -594,6 +605,7 @@ static int bmg160_read_raw(struct iio_dev *indio_dev,
 			for (i = 0; i < ARRAY_SIZE(bmg160_scale_table); ++i) {
 				if (bmg160_scale_table[i].dps_range ==
 							data->dps_range) {
+					*val = 0;
 					*val2 = bmg160_scale_table[i].scale;
 					return IIO_VAL_INT_PLUS_MICRO;
 				}

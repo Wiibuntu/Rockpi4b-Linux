@@ -18,6 +18,7 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+#include "walt.h"
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
@@ -222,6 +223,18 @@ static void hrtick_clear(struct rq *rq)
 		hrtimer_cancel(&rq->hrtick_timer);
 }
 
+struct rq *
+lock_rq_of(struct task_struct *p, unsigned long *flags)
+{
+	return task_rq_lock(p, flags);
+}
+
+void
+unlock_rq_of(struct rq *rq, struct task_struct *p, unsigned long *flags)
+{
+	task_rq_unlock(rq, p, flags);
+}
+
 /*
  * High-resolution timer tick.
  * Runs from hardirq context with interrupts disabled.
@@ -417,6 +430,8 @@ void wake_q_add(struct wake_q_head *head, struct task_struct *task)
 	if (cmpxchg(&node->next, NULL, WAKE_Q_TAIL))
 		return;
 
+	head->count++;
+
 	get_task_struct(task);
 
 	/*
@@ -425,6 +440,10 @@ void wake_q_add(struct wake_q_head *head, struct task_struct *task)
 	*head->lastp = node;
 	head->lastp = &node->next;
 }
+
+static int
+try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags,
+	       int sibling_count_hint);
 
 void wake_up_q(struct wake_q_head *head)
 {
@@ -440,10 +459,10 @@ void wake_up_q(struct wake_q_head *head)
 		task->wake_q.next = NULL;
 
 		/*
-		 * wake_up_process() implies a wmb() to pair with the queueing
+		 * try_to_wake_up() implies a wmb() to pair with the queueing
 		 * in wake_q_add() so as not to miss wakeups.
 		 */
-		wake_up_process(task);
+		try_to_wake_up(task, TASK_NORMAL, 0, head->count);
 		put_task_struct(task);
 	}
 }
@@ -1192,6 +1211,8 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 			p->sched_class->migrate_task_rq(p);
 		p->se.nr_migrations++;
 		perf_event_task_migrate(p);
+
+		walt_fixup_busy_time(p, new_cpu);
 	}
 
 	__set_task_cpu(p, new_cpu);
@@ -1211,7 +1232,9 @@ static void __migrate_swap_task(struct task_struct *p, int cpu)
 
 		p->on_rq = TASK_ON_RQ_MIGRATING;
 		deactivate_task(src_rq, p, 0);
+		p->on_rq = TASK_ON_RQ_MIGRATING;
 		set_task_cpu(p, cpu);
+		p->on_rq = TASK_ON_RQ_QUEUED;
 		activate_task(dst_rq, p, 0);
 		p->on_rq = TASK_ON_RQ_QUEUED;
 		check_preempt_curr(dst_rq, p, 0);
@@ -1957,6 +1980,8 @@ static void ttwu_queue(struct task_struct *p, int cpu, int wake_flags)
  * @p: the thread to be awakened
  * @state: the mask of task states that can be woken
  * @wake_flags: wake modifier flags (WF_*)
+ * @sibling_count_hint: A hint at the number of threads that are being woken up
+ *                      in this event.
  *
  * If (@state & @p->state) @p->state = TASK_RUNNING.
  *
@@ -1969,10 +1994,15 @@ static void ttwu_queue(struct task_struct *p, int cpu, int wake_flags)
  *	   %false otherwise.
  */
 static int
-try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
+try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags,
+	       int sibling_count_hint)
 {
 	unsigned long flags;
 	int cpu, success = 0;
+#ifdef CONFIG_SMP
+	struct rq *rq;
+	u64 wallclock;
+#endif
 
 	/*
 	 * If we are going to wake up a thread waiting for CONDITION we
@@ -2143,13 +2173,13 @@ out:
  */
 int wake_up_process(struct task_struct *p)
 {
-	return try_to_wake_up(p, TASK_NORMAL, 0);
+	return try_to_wake_up(p, TASK_NORMAL, 0, 1);
 }
 EXPORT_SYMBOL(wake_up_process);
 
 int wake_up_state(struct task_struct *p, unsigned int state)
 {
-	return try_to_wake_up(p, state, 0);
+	return try_to_wake_up(p, state, 0, 1);
 }
 
 /*
@@ -2168,7 +2198,16 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+#ifdef CONFIG_SCHED_WALT
+	p->last_sleep_ts		= 0;
+#endif
+
 	INIT_LIST_HEAD(&p->se.group_node);
+	walt_init_new_task_load(p);
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	p->se.cfs_rq			= NULL;
+#endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	p->se.cfs_rq			= NULL;
@@ -2184,6 +2223,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	init_dl_inactive_task_timer(&p->dl);
 	__dl_clear_params(p);
 
+	init_rt_schedtune_timer(&p->rt);
 	INIT_LIST_HEAD(&p->rt.run_list);
 	p->rt.timeout		= 0;
 	p->rt.time_slice	= sched_rr_timeslice;
@@ -2978,6 +3018,36 @@ unsigned long nr_iowait_cpu(int cpu)
 	return atomic_read(&this->nr_iowait);
 }
 
+#ifdef CONFIG_CPU_QUIET
+u64 nr_running_integral(unsigned int cpu)
+{
+	unsigned int seqcnt;
+	u64 integral;
+	struct rq *q;
+
+	if (cpu >= nr_cpu_ids)
+		return 0;
+
+	q = cpu_rq(cpu);
+
+	/*
+	 * Update average to avoid reading stalled value if there were
+	 * no run-queue changes for a long time. On the other hand if
+	 * the changes are happening right now, just read current value
+	 * directly.
+	 */
+
+	seqcnt = read_seqcount_begin(&q->ave_seqcnt);
+	integral = do_nr_running_integral(q);
+	if (read_seqcount_retry(&q->ave_seqcnt, seqcnt)) {
+		read_seqcount_begin(&q->ave_seqcnt);
+		integral = q->nr_running_integral;
+	}
+
+	return integral;
+}
+#endif
+
 void get_iowait_load(unsigned long *nr_waiters, unsigned long *load)
 {
 	struct rq *rq = this_rq();
@@ -2998,7 +3068,7 @@ void sched_exec(void)
 	int dest_cpu;
 
 	raw_spin_lock_irqsave(&p->pi_lock, flags);
-	dest_cpu = p->sched_class->select_task_rq(p, task_cpu(p), SD_BALANCE_EXEC, 0);
+	dest_cpu = p->sched_class->select_task_rq(p, task_cpu(p), SD_BALANCE_EXEC, 0, 1);
 	if (dest_cpu == smp_processor_id())
 		goto unlock;
 
@@ -3432,6 +3502,7 @@ static void __sched notrace __schedule(bool preempt)
 	struct rq_flags rf;
 	struct rq *rq;
 	int cpu;
+	u64 wallclock;
 
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
@@ -3584,6 +3655,31 @@ void __sched schedule_idle(void)
 	 * current task can be in any other state. Note, idle is always in the
 	 * TASK_RUNNING state.
 	 */
+	WARN_ON_ONCE(current->state);
+	do {
+		__schedule(false);
+	} while (need_resched());
+}
+
+/*
+ * synchronize_rcu_tasks() makes sure that no task is stuck in preempted
+ * state (have scheduled out non-voluntarily) by making sure that all
+ * tasks have either left the run queue or have gone into user space.
+ * As idle tasks do not do either, they must not ever be preempted
+ * (schedule out non-voluntarily).
+ *
+ * schedule_idle() is similar to schedule_preempt_disable() except that it
+ * never enables preemption because it does not call sched_submit_work().
+ */
+void __sched schedule_idle(void)
+{
+       /*
+	* As this skips calling sched_submit_work(), which the idle task does
+	* regardless because that function is a nop when the task is in a
+	* TASK_RUNNING state, make sure this isn't used someplace that the
+	* current task can be in any other state. Note, idle is always in the
+	* TASK_RUNNING state.
+	*/
 	WARN_ON_ONCE(current->state);
 	do {
 		__schedule(false);
@@ -3753,7 +3849,7 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
 int default_wake_function(wait_queue_entry_t *curr, unsigned mode, int wake_flags,
 			  void *key)
 {
-	return try_to_wake_up(curr->private, mode, wake_flags);
+	return try_to_wake_up(curr->private, mode, wake_flags, 1);
 }
 EXPORT_SYMBOL(default_wake_function);
 
@@ -6711,6 +6807,66 @@ struct cfs_schedulable_data {
 	struct task_group *tg;
 	u64 period, quota;
 };
+
+/*
+ * Check that the per-cpu provided sd energy data is consistent for all cpus
+ * within the mask.
+ */
+static inline void check_sched_energy_data(int cpu, sched_domain_energy_f fn,
+					   const struct cpumask *cpumask)
+{
+	const struct sched_group_energy * const sge = fn(cpu);
+	struct cpumask mask;
+	int i;
+
+	if (cpumask_weight(cpumask) <= 1)
+		return;
+
+	cpumask_xor(&mask, cpumask, get_cpu_mask(cpu));
+
+	for_each_cpu(i, &mask) {
+		const struct sched_group_energy * const e = fn(i);
+		int y;
+
+		BUG_ON(e->nr_idle_states != sge->nr_idle_states);
+
+		for (y = 0; y < (e->nr_idle_states); y++) {
+			BUG_ON(e->idle_states[y].power !=
+					sge->idle_states[y].power);
+		}
+
+		BUG_ON(e->nr_cap_states != sge->nr_cap_states);
+
+		for (y = 0; y < (e->nr_cap_states); y++) {
+			BUG_ON(e->cap_states[y].cap != sge->cap_states[y].cap);
+			BUG_ON(e->cap_states[y].power !=
+					sge->cap_states[y].power);
+		}
+	}
+}
+
+static void init_sched_energy(int cpu, struct sched_domain *sd,
+			      sched_domain_energy_f fn)
+{
+	if (!(fn && fn(cpu)))
+		return;
+
+	if (cpu != group_balance_cpu(sd->groups))
+		return;
+
+	if (sd->child && !sd->child->groups->sge) {
+		pr_err("BUG: EAS setup broken for CPU%d\n", cpu);
+#ifdef CONFIG_SCHED_DEBUG
+		pr_err("     energy data on %s but not on %s domain\n",
+			sd->name, sd->child->name);
+#endif
+		return;
+	}
+
+	check_sched_energy_data(cpu, fn, sched_group_cpus(sd->groups));
+
+	sd->groups->sge = fn(cpu);
+}
 
 /*
  * normalize group quota/period to be quota/max_period

@@ -2767,7 +2767,7 @@ static int __ffs_func_bind_do_descs(enum ffs_entity_type type, u8 *valuep,
 	}
 	ffs_dump_mem(": Rewritten ep desc", ds, ds->bLength);
 
-	return 0;
+	return creq->wLength == 0 ? USB_GADGET_DELAYED_STATUS : 0;
 }
 
 static int __ffs_func_bind_do_nums(enum ffs_entity_type type, u8 *valuep,
@@ -3381,6 +3381,7 @@ static const struct config_item_type ffs_func_type = {
 static void ffs_free_inst(struct usb_function_instance *f)
 {
 	struct f_fs_opts *opts;
+	struct config_item *ci;
 
 	opts = to_f_fs_opts(f);
 	ffs_dev_lock();

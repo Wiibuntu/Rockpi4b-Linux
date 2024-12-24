@@ -1026,6 +1026,56 @@ static void cpu_copy_el2regs(const struct arm64_cpu_capabilities *__unused)
 }
 #endif
 
+static bool has_no_hw_prefetch(const struct arm64_cpu_capabilities *entry)
+{
+	u32 midr = read_cpuid_id();
+	u32 rv_min, rv_max;
+
+	/* Cavium ThunderX pass 1.x and 2.x */
+	rv_min = 0;
+	rv_max = (1 << MIDR_VARIANT_SHIFT) | MIDR_REVISION_MASK;
+
+	return MIDR_IS_CPU_MODEL_RANGE(midr, MIDR_THUNDERX, rv_min, rv_max);
+}
+
+static bool runs_at_el2(const struct arm64_cpu_capabilities *entry)
+{
+	return is_kernel_in_hyp_mode();
+}
+
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+static int __kpti_forced; /* 0: not forced, >0: forced on, <0: forced off */
+
+static bool unmap_kernel_at_el0(const struct arm64_cpu_capabilities *entry)
+{
+	/* Forced on command line? */
+	if (__kpti_forced) {
+		pr_info_once("kernel page table isolation forced %s by command line option\n",
+			     __kpti_forced > 0 ? "ON" : "OFF");
+		return __kpti_forced > 0;
+	}
+
+	/* Useful for KASLR robustness */
+	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE))
+		return true;
+
+	return false;
+}
+
+static int __init parse_kpti(char *str)
+{
+	bool enabled;
+	int ret = strtobool(str, &enabled);
+
+	if (ret)
+		return ret;
+
+	__kpti_forced = enabled ? 1 : -1;
+	return 0;
+}
+__setup("kpti=", parse_kpti);
+#endif	/* CONFIG_UNMAP_KERNEL_AT_EL0 */
+
 static const struct arm64_cpu_capabilities arm64_features[] = {
 	{
 		.desc = "GIC system register CPU interface",
@@ -1744,4 +1794,10 @@ void cpu_clear_disr(const struct arm64_cpu_capabilities *__unused)
 {
 	/* Firmware may have left a deferred SError in this register. */
 	write_sysreg_s(0, SYS_DISR_EL1);
+}
+
+static bool __maybe_unused
+cpufeature_pan_not_uao(const struct arm64_cpu_capabilities *entry)
+{
+	return (cpus_have_cap(ARM64_HAS_PAN) && !cpus_have_cap(ARM64_HAS_UAO));
 }

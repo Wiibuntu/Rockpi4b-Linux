@@ -1,0 +1,10 @@
+--- drivers/net/usb/ipheth.c
++++ drivers/net/usb/ipheth.c
+@@ -280,7 +280,6 @@ static void ipheth_sndbulk_callback(struct urb *urb)
+ 		dev_err(&dev->intf->dev, "%s: urb status: %d\n",
+ 		__func__, status);
+ 
+-	dev_kfree_skb_irq(dev->tx_skb);
+ 	netif_wake_queue(dev->net);
+ }
+ 

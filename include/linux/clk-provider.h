@@ -283,6 +283,8 @@ struct clk_fixed_rate {
 
 #define to_clk_fixed_rate(_hw) container_of(_hw, struct clk_fixed_rate, hw)
 
+#define to_clk_fixed_rate(_hw) container_of(_hw, struct clk_fixed_rate, hw)
+
 extern const struct clk_ops clk_fixed_rate_ops;
 struct clk *clk_register_fixed_rate(struct device *dev, const char *name,
 		const char *parent_name, unsigned long flags,
@@ -328,6 +330,8 @@ struct clk_gate {
 	u8		flags;
 	spinlock_t	*lock;
 };
+
+#define to_clk_gate(_hw) container_of(_hw, struct clk_gate, hw)
 
 #define to_clk_gate(_hw) container_of(_hw, struct clk_gate, hw)
 
@@ -400,6 +404,8 @@ struct clk_divider {
 };
 
 #define clk_div_mask(width)	((1 << (width)) - 1)
+#define to_clk_divider(_hw) container_of(_hw, struct clk_divider, hw)
+
 #define to_clk_divider(_hw) container_of(_hw, struct clk_divider, hw)
 
 #define CLK_DIVIDER_ONE_BASED		BIT(0)
@@ -485,6 +491,8 @@ struct clk_mux {
 
 #define to_clk_mux(_hw) container_of(_hw, struct clk_mux, hw)
 
+#define to_clk_mux(_hw) container_of(_hw, struct clk_mux, hw)
+
 #define CLK_MUX_INDEX_ONE		BIT(0)
 #define CLK_MUX_INDEX_BIT		BIT(1)
 #define CLK_MUX_HIWORD_MASK		BIT(2)
@@ -545,6 +553,8 @@ struct clk_fixed_factor {
 
 #define to_clk_fixed_factor(_hw) container_of(_hw, struct clk_fixed_factor, hw)
 
+#define to_clk_fixed_factor(_hw) container_of(_hw, struct clk_fixed_factor, hw)
+
 extern const struct clk_ops clk_fixed_factor_ops;
 struct clk *clk_register_fixed_factor(struct device *dev, const char *name,
 		const char *parent_name, unsigned long flags,
@@ -564,6 +574,7 @@ void clk_hw_unregister_fixed_factor(struct clk_hw *hw);
  * @mwidth:	width of the numerator bit field
  * @nshift:	shift to the denominator bit field
  * @nwidth:	width of the denominator bit field
+ * @max_parent:	the maximum frequency of fractional divider parent clock
  * @lock:	register lock
  *
  * Clock with adjustable fractional divider affecting its output frequency.
@@ -629,6 +640,8 @@ struct clk_multiplier {
 
 #define to_clk_multiplier(_hw) container_of(_hw, struct clk_multiplier, hw)
 
+#define to_clk_multiplier(_hw) container_of(_hw, struct clk_multiplier, hw)
+
 #define CLK_MULTIPLIER_ZERO_BYPASS		BIT(0)
 #define CLK_MULTIPLIER_ROUND_CLOSEST	BIT(1)
 
@@ -657,6 +670,8 @@ struct clk_composite {
 	const struct clk_ops	*rate_ops;
 	const struct clk_ops	*gate_ops;
 };
+
+#define to_clk_composite(_hw) container_of(_hw, struct clk_composite, hw)
 
 #define to_clk_composite(_hw) container_of(_hw, struct clk_composite, hw)
 
@@ -689,6 +704,8 @@ struct clk_gpio {
 	struct clk_hw	hw;
 	struct gpio_desc *gpiod;
 };
+
+#define to_clk_gpio(_hw) container_of(_hw, struct clk_gpio, hw)
 
 #define to_clk_gpio(_hw) container_of(_hw, struct clk_gpio, hw)
 

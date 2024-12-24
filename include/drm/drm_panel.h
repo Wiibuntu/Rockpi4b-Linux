@@ -35,6 +35,7 @@ struct display_timing;
 
 /**
  * struct drm_panel_funcs - perform operations on a given panel
+ * @loader_protect: protect loader logo panel's power
  * @disable: disable panel (turn off back light, etc.)
  * @unprepare: turn off panel
  * @prepare: turn on panel and perform set up
@@ -68,6 +69,7 @@ struct display_timing;
  * the panel. This is the job of the .unprepare() function.
  */
 struct drm_panel_funcs {
+	int (*loader_protect)(struct drm_panel *panel, bool on);
 	int (*disable)(struct drm_panel *panel);
 	int (*unprepare)(struct drm_panel *panel);
 	int (*prepare)(struct drm_panel *panel);

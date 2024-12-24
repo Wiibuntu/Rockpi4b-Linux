@@ -64,6 +64,24 @@ void notrace __cpu_suspend_exit(void)
 		hw_breakpoint_restore(cpu);
 }
 
+void notrace __cpu_suspend_exit(void)
+{
+	/*
+	 * We are resuming from reset with the idmap active in TTBR0_EL1.
+	 * We must uninstall the idmap and restore the expected MMU
+	 * state before we can possibly return to userspace.
+	 */
+	cpu_uninstall_idmap();
+
+	/*
+	 * Restore HW breakpoint registers to sane values
+	 * before debug exceptions are possibly reenabled
+	 * through local_dbg_restore.
+	 */
+	if (hw_breakpoint_restore)
+		hw_breakpoint_restore(NULL);
+}
+
 /*
  * cpu_suspend
  *

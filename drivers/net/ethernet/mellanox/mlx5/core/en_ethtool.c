@@ -1375,6 +1375,8 @@ static int mlx5e_get_module_info(struct net_device *netdev,
 		return -EINVAL;
 	}
 
+out:
+	mutex_unlock(&priv->state_lock);
 	return 0;
 }
 

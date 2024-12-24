@@ -7,6 +7,9 @@
 
 #define ARM64_CB_PATCH ARM64_NCAPS
 
+#include <asm/cpufeature.h>
+#include <asm/insn.h>
+
 #ifndef __ASSEMBLY__
 
 #include <linux/init.h>
@@ -85,6 +88,8 @@ void apply_alternatives(void *start, size_t length);
 #define ALTERNATIVE_CB(oldinstr, cb) \
 	__ALTERNATIVE_CFG(oldinstr, "NOT_AN_INSTRUCTION", ARM64_CB_PATCH, 1, cb)
 #else
+
+#include <asm/assembler.h>
 
 #include <asm/assembler.h>
 

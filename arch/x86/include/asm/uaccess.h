@@ -7,6 +7,7 @@
 #include <linux/compiler.h>
 #include <linux/kasan-checks.h>
 #include <linux/string.h>
+#include <linux/preempt.h>
 #include <asm/asm.h>
 #include <asm/page.h>
 #include <asm/smap.h>
@@ -75,6 +76,12 @@ static inline bool __chk_range_not_ok(unsigned long addr, unsigned long size, un
 # define WARN_ON_IN_IRQ()
 #endif
 
+#ifdef CONFIG_DEBUG_ATOMIC_SLEEP
+# define WARN_ON_IN_IRQ()	WARN_ON_ONCE(!in_task())
+#else
+# define WARN_ON_IN_IRQ()
+#endif
+
 /**
  * access_ok: - Checks if a user space pointer is valid
  * @type: Type of access: %VERIFY_READ or %VERIFY_WRITE.  Note that
@@ -121,6 +128,14 @@ extern int __get_user_2(void);
 extern int __get_user_4(void);
 extern int __get_user_8(void);
 extern int __get_user_bad(void);
+
+#define __uaccess_begin() stac()
+#define __uaccess_end()   clac()
+#define __uaccess_begin_nospec()	\
+({					\
+	stac();				\
+	barrier_nospec();		\
+})
 
 #define __uaccess_begin() stac()
 #define __uaccess_end()   clac()
@@ -352,7 +367,7 @@ do {									\
 #define __get_user_asm_u64(x, ptr, retval, errret) \
 	 __get_user_asm(x, ptr, retval, "q", "", "=r", errret)
 #define __get_user_asm_ex_u64(x, ptr) \
-	 __get_user_asm_ex(x, ptr, "q", "", "=r")
+	 __get_user_asm_ex(x, ptr, "q", "", "=&r")
 #endif
 
 #define __get_user_size(x, ptr, size, retval, errret)			\
@@ -723,6 +738,31 @@ do {										\
 do {										\
 	int __gu_err;								\
 	__inttype(*(ptr)) __gu_val;						\
+	__get_user_size(__gu_val, (ptr), sizeof(*(ptr)), __gu_err, -EFAULT);	\
+	(x) = (__force __typeof__(*(ptr)))__gu_val;				\
+	if (unlikely(__gu_err)) goto err_label;					\
+} while (0)
+
+/*
+ * The "unsafe" user accesses aren't really "unsafe", but the naming
+ * is a big fat warning: you have to not only do the access_ok()
+ * checking before using them, but you have to surround them with the
+ * user_access_begin/end() pair.
+ */
+#define user_access_begin()	__uaccess_begin()
+#define user_access_end()	__uaccess_end()
+
+#define unsafe_put_user(x, ptr, err_label)					\
+do {										\
+	int __pu_err;								\
+	__put_user_size((x), (ptr), sizeof(*(ptr)), __pu_err, -EFAULT);		\
+	if (unlikely(__pu_err)) goto err_label;					\
+} while (0)
+
+#define unsafe_get_user(x, ptr, err_label)					\
+do {										\
+	int __gu_err;								\
+	unsigned long __gu_val;							\
 	__get_user_size(__gu_val, (ptr), sizeof(*(ptr)), __gu_err, -EFAULT);	\
 	(x) = (__force __typeof__(*(ptr)))__gu_val;				\
 	if (unlikely(__gu_err)) goto err_label;					\

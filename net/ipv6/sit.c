@@ -777,8 +777,9 @@ static bool check_6rd(struct ip_tunnel *tunnel, const struct in6_addr *v6dst,
 		pbw0 = tunnel->ip6rd.prefixlen >> 5;
 		pbi0 = tunnel->ip6rd.prefixlen & 0x1f;
 
-		d = (ntohl(v6dst->s6_addr32[pbw0]) << pbi0) >>
-		    tunnel->ip6rd.relay_prefixlen;
+		d = tunnel->ip6rd.relay_prefixlen < 32 ?
+			(ntohl(v6dst->s6_addr32[pbw0]) << pbi0) >>
+		    tunnel->ip6rd.relay_prefixlen : 0;
 
 		pbi1 = pbi0 - tunnel->ip6rd.relay_prefixlen;
 		if (pbi1 > 0)
@@ -1347,6 +1348,7 @@ static const struct net_device_ops ipip6_netdev_ops = {
 static void ipip6_dev_free(struct net_device *dev)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
+	int err;
 
 	dst_cache_destroy(&tunnel->dst_cache);
 	free_percpu(dev->tstats);
@@ -1513,6 +1515,13 @@ static bool ipip6_netlink_encap_parms(struct nlattr *data[],
 
 	return ret;
 }
+
+	if (tb[IFLA_MTU]) {
+		u32 mtu = nla_get_u32(tb[IFLA_MTU]);
+
+		if (mtu >= IPV6_MIN_MTU && mtu <= 0xFFF8 - dev->hard_header_len)
+			dev->mtu = mtu;
+	}
 
 #ifdef CONFIG_IPV6_SIT_6RD
 /* This function returns true when 6RD attributes are present in the nl msg */

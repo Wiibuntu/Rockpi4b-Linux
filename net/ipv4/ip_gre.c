@@ -230,6 +230,7 @@ static void gre_err(struct sk_buff *skb, u32 info)
 	const int code = icmp_hdr(skb)->code;
 	struct tnl_ptk_info tpi;
 	bool csum_err = false;
+	int hdr_len;
 
 	if (gre_parse_header(skb, &tpi, &csum_err, htons(ETH_P_IP),
 			     iph->ihl * 4) < 0) {

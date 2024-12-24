@@ -34,6 +34,12 @@ static void mcip_update_gfrc_halt_mask(int cpu)
 
 	READ_BCR(ARC_REG_GFRC_BUILD, gfrc);
 
+	/* ARConnect can only send IPI to others */
+	if (unlikely(cpu == raw_smp_processor_id())) {
+		arc_softirq_trigger(SOFTIRQ_IRQ);
+		return;
+	}
+
 	/*
 	 * CMD_GFRC_SET_CORE and CMD_GFRC_READ_CORE commands were added in
 	 * GFRC 0x3 version.
@@ -55,6 +61,11 @@ static void mcip_update_debug_halt_mask(int cpu)
 {
 	u32 mcip_mask = 0;
 	unsigned long flags;
+
+	if (unlikely(irq == SOFTIRQ_IRQ)) {
+		arc_softirq_clear(irq);
+		return;
+	}
 
 	raw_spin_lock_irqsave(&mcip_lock, flags);
 

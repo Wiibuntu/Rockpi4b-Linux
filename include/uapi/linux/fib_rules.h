@@ -40,6 +40,11 @@ struct fib_rule_port_range {
 	__u16		end;
 };
 
+struct fib_rule_uid_range {
+	__u32		start;
+	__u32		end;
+};
+
 enum {
 	FRA_UNSPEC,
 	FRA_DST,	/* destination address */

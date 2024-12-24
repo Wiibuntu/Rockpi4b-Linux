@@ -324,7 +324,7 @@ void posixtimer_rearm(struct siginfo *info)
 		timr->it_overrun = -1;
 		++timr->it_requeue_pending;
 
-		info->si_overrun += timr->it_overrun_last;
+		info->si_overrun = timer_overrun_to_int(timr, info->si_overrun);
 	}
 
 	unlock_timer(timr, flags);
@@ -789,7 +789,7 @@ SYSCALL_DEFINE1(timer_getoverrun, timer_t, timer_id)
 	if (!timr)
 		return -EINVAL;
 
-	overrun = timr->it_overrun_last;
+	overrun = timer_overrun_to_int(timr, 0);
 	unlock_timer(timr, flags);
 
 	return overrun;

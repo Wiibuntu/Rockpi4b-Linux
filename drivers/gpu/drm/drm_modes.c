@@ -611,6 +611,13 @@ void drm_display_mode_from_videomode(const struct videomode *vm,
 		dmode->flags |= DRM_MODE_FLAG_DBLSCAN;
 	if (vm->flags & DISPLAY_FLAGS_DOUBLECLK)
 		dmode->flags |= DRM_MODE_FLAG_DBLCLK;
+	if (vm->flags & DISPLAY_FLAGS_PIXDATA_POSEDGE)
+		dmode->flags |= DRM_MODE_FLAG_PPIXDATA;
+	if (vm->flags & DISPLAY_FLAGS_MIRROR_Y)
+		dmode->flags |= DRM_MODE_FLAG_YMIRROR;
+	if (vm->flags & DISPLAY_FLAGS_MIRROR_X)
+		dmode->flags |= DRM_MODE_FLAG_XMIRROR;
+
 	drm_mode_set_name(dmode);
 }
 EXPORT_SYMBOL_GPL(drm_display_mode_from_videomode);
@@ -751,7 +758,7 @@ int drm_mode_hsync(const struct drm_display_mode *mode)
 	if (mode->hsync)
 		return mode->hsync;
 
-	if (mode->htotal < 0)
+	if (mode->htotal <= 0)
 		return 0;
 
 	calc_val = (mode->clock * 1000) / mode->htotal; /* hsync in Hz */
@@ -1108,6 +1115,34 @@ drm_mode_validate_size(const struct drm_display_mode *mode,
 	return MODE_OK;
 }
 EXPORT_SYMBOL(drm_mode_validate_size);
+
+/**
+ * drm_mode_validate_ycbcr420 - add 'ycbcr420-only' modes only when allowed
+ * @mode: mode to check
+ * @connector: drm connector under action
+ *
+ * This function is a helper which can be used to filter out any YCBCR420
+ * only mode, when the source doesn't support it.
+ *
+ * Returns:
+ * The mode status
+ */
+enum drm_mode_status
+drm_mode_validate_ycbcr420(const struct drm_display_mode *mode,
+			   struct drm_connector *connector)
+{
+	u8 vic = drm_match_cea_mode(mode);
+	enum drm_mode_status status = MODE_OK;
+	struct drm_hdmi_info *hdmi = &connector->display_info.hdmi;
+
+	if (test_bit(vic, hdmi->y420_vdb_modes)) {
+		if (!connector->ycbcr_420_allowed)
+			status = MODE_NO_420;
+	}
+
+	return status;
+}
+EXPORT_SYMBOL(drm_mode_validate_ycbcr420);
 
 /**
  * drm_mode_validate_ycbcr420 - add 'ycbcr420-only' modes only when allowed

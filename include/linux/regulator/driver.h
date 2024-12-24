@@ -99,6 +99,8 @@ struct regulator_linear_range {
  *
  * @set_active_discharge: Set active discharge enable/disable of regulators.
  *
+ * @set_active_discharge: Set active discharge enable/disable of regulators.
+ *
  * @set_mode: Set the configured operating mode for the regulator.
  * @get_mode: Get the configured operating mode for the regulator.
  * @get_error_flags: Get the current error(s) for the regulator.
@@ -452,6 +454,7 @@ struct regulator_dev {
 
 	/* time when this regulator was disabled last time */
 	unsigned long last_off_jiffy;
+	struct regulator *debug_consumer;
 };
 
 struct regulator_dev *

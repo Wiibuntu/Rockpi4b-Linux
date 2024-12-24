@@ -29,6 +29,7 @@ early_initcall(uaccess_init);
 
 static inline int copy_with_mvcos(void)
 {
+	check_object_size(to, n, false);
 	if (static_branch_likely(&have_mvcos))
 		return 1;
 	return 0;

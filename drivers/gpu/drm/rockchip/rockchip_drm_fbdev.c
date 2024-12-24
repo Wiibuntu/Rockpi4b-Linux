@@ -68,7 +68,7 @@ static int rockchip_drm_fbdev_create(struct drm_fb_helper *helper,
 
 	size = mode_cmd.pitches[0] * mode_cmd.height;
 
-	rk_obj = rockchip_gem_create_object(dev, size, true);
+	rk_obj = rockchip_gem_create_object(dev, size, true, 0);
 	if (IS_ERR(rk_obj))
 		return -ENOMEM;
 
@@ -121,6 +121,8 @@ out:
 }
 
 static const struct drm_fb_helper_funcs rockchip_drm_fb_helper_funcs = {
+	.gamma_set = rockchip_vop_crtc_fb_gamma_set,
+	.gamma_get = rockchip_vop_crtc_fb_gamma_get,
 	.fb_probe = rockchip_drm_fbdev_create,
 };
 
@@ -133,7 +135,9 @@ int rockchip_drm_fbdev_init(struct drm_device *dev)
 	if (!dev->mode_config.num_crtc || !dev->mode_config.num_connector)
 		return -EINVAL;
 
-	helper = &private->fbdev_helper;
+	helper = devm_kzalloc(dev->dev, sizeof(*helper), GFP_KERNEL);
+	if (!helper)
+		return -ENOMEM;
 
 	drm_fb_helper_prepare(dev, helper, &rockchip_drm_fb_helper_funcs);
 
@@ -160,6 +164,8 @@ int rockchip_drm_fbdev_init(struct drm_device *dev)
 		goto err_drm_fb_helper_fini;
 	}
 
+	private->fbdev_helper = helper;
+
 	return 0;
 
 err_drm_fb_helper_fini:
@@ -170,9 +176,10 @@ err_drm_fb_helper_fini:
 void rockchip_drm_fbdev_fini(struct drm_device *dev)
 {
 	struct rockchip_drm_private *private = dev->dev_private;
-	struct drm_fb_helper *helper;
+	struct drm_fb_helper *helper = private->fbdev_helper;
 
-	helper = &private->fbdev_helper;
+	if (!helper)
+		return;
 
 	drm_fb_helper_unregister_fbi(helper);
 

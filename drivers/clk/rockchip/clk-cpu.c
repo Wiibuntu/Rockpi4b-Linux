@@ -54,6 +54,7 @@
  */
 struct rockchip_cpuclk {
 	struct clk_hw				hw;
+	struct clk_hw				*pll_hw;
 
 	struct clk_mux				cpu_mux;
 	const struct clk_ops			*cpu_mux_ops;

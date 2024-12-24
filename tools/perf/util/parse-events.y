@@ -523,6 +523,15 @@ event_term
 	list_add_tail(&term->list, head);
 	$$ = head;
 }
+|
+PE_DRV_CFG_TERM
+{
+	struct parse_events_term *term;
+
+	ABORT_ON(parse_events_term__str(&term, PARSE_EVENTS__TERM_TYPE_DRV_CFG,
+                                       $1, $1, &@1, NULL));
+	$$ = term;
+}
 
 event_term:
 PE_NAME '=' PE_NAME

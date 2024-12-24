@@ -313,4 +313,20 @@ fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port,
 int fwnode_graph_parse_endpoint(const struct fwnode_handle *fwnode,
 				struct fwnode_endpoint *endpoint);
 
+struct fwnode_handle *fwnode_graph_get_next_endpoint(
+	struct fwnode_handle *fwnode, struct fwnode_handle *prev);
+struct fwnode_handle *
+fwnode_graph_get_port_parent(struct fwnode_handle *fwnode);
+struct fwnode_handle *fwnode_graph_get_remote_port_parent(
+	struct fwnode_handle *fwnode);
+struct fwnode_handle *fwnode_graph_get_remote_port(
+	struct fwnode_handle *fwnode);
+struct fwnode_handle *fwnode_graph_get_remote_endpoint(
+	struct fwnode_handle *fwnode);
+struct fwnode_handle *fwnode_graph_get_remote_node(struct fwnode_handle *fwnode,
+						   u32 port, u32 endpoint);
+
+int fwnode_graph_parse_endpoint(struct fwnode_handle *fwnode,
+				struct fwnode_endpoint *endpoint);
+
 #endif /* _LINUX_PROPERTY_H_ */

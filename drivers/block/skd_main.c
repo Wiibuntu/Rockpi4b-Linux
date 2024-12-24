@@ -1285,6 +1285,9 @@ static void skd_send_special_fitmsg(struct skd_device *skdev,
 	/* Make sure skd_msg_buf is written before the doorbell is triggered. */
 	smp_wmb();
 
+	/* Make sure skd_msg_buf is written before the doorbell is triggered. */
+	smp_wmb();
+
 	SKD_WRITEQ(skdev, qcmd, FIT_Q_COMMAND);
 }
 

@@ -20,6 +20,7 @@
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-contiguous.h>
+#include <linux/dma-iommu.h>
 #include <linux/highmem.h>
 #include <linux/memblock.h>
 #include <linux/slab.h>
@@ -34,7 +35,6 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <asm/mach/arch.h>
-#include <asm/dma-iommu.h>
 #include <asm/mach/map.h>
 #include <asm/system_info.h>
 #include <asm/dma-contiguous.h>
@@ -94,23 +94,6 @@ static struct arm_dma_buffer *arm_dma_buffer_find(void *virt)
 	spin_unlock_irqrestore(&arm_dma_bufs_lock, flags);
 	return found;
 }
-
-/*
- * The DMA API is built upon the notion of "buffer ownership".  A buffer
- * is either exclusively owned by the CPU (and therefore may be accessed
- * by it) or exclusively owned by the DMA device.  These helper functions
- * represent the transitions between these two ownership states.
- *
- * Note, however, that on later ARMs, this notion does not work due to
- * speculative prefetches.  We model our approach on the assumption that
- * the CPU does do speculative prefetches, which means we clean caches
- * before transfers and delay cache invalidation until transfer completion.
- *
- */
-static void __dma_page_cpu_to_dev(struct page *, unsigned long,
-		size_t, enum dma_data_direction);
-static void __dma_page_dev_to_cpu(struct page *, unsigned long,
-		size_t, enum dma_data_direction);
 
 /**
  * arm_dma_map_page - map a portion of a page for streaming DMA
@@ -548,7 +531,7 @@ static void *__alloc_remap_buffer(struct device *dev, size_t size, gfp_t gfp,
 	return ptr;
 }
 
-static void *__alloc_from_pool(size_t size, struct page **ret_page)
+void *arch_alloc_from_atomic_pool(size_t size, struct page **ret_page, gfp_t gfp)
 {
 	unsigned long val;
 	void *ptr = NULL;
@@ -569,14 +552,14 @@ static void *__alloc_from_pool(size_t size, struct page **ret_page)
 	return ptr;
 }
 
-static bool __in_atomic_pool(void *start, size_t size)
+bool arch_in_atomic_pool(void *start, size_t size)
 {
 	return addr_in_gen_pool(atomic_pool, (unsigned long)start, size);
 }
 
-static int __free_from_pool(void *start, size_t size)
+int arch_free_from_atomic_pool(void *start, size_t size)
 {
-	if (!__in_atomic_pool(start, size))
+	if (!arch_in_atomic_pool(start, size))
 		return 0;
 
 	gen_pool_free(atomic_pool, (unsigned long)start, size);
@@ -813,7 +796,7 @@ static void *__dma_alloc(struct device *dev, size_t size, dma_addr_t *handle,
 void *arm_dma_alloc(struct device *dev, size_t size, dma_addr_t *handle,
 		    gfp_t gfp, unsigned long attrs)
 {
-	pgprot_t prot = __get_dma_pgprot(attrs, PAGE_KERNEL);
+	pgprot_t prot = __get_dma_pgprot(attrs, PAGE_KERNEL, false);
 
 	return __dma_alloc(dev, size, handle, gfp, prot, false,
 			   attrs, __builtin_return_address(0));
@@ -990,7 +973,7 @@ static void dma_cache_maint_page(struct page *page, unsigned long offset,
  * platforms with CONFIG_DMABOUNCE.
  * Use the driver DMA support - see dma-mapping.h (dma_sync_*)
  */
-static void __dma_page_cpu_to_dev(struct page *page, unsigned long off,
+void __dma_page_cpu_to_dev(struct page *page, unsigned long off,
 	size_t size, enum dma_data_direction dir)
 {
 	phys_addr_t paddr;
@@ -1006,7 +989,7 @@ static void __dma_page_cpu_to_dev(struct page *page, unsigned long off,
 	/* FIXME: non-speculating: flush on bidirectional mappings? */
 }
 
-static void __dma_page_dev_to_cpu(struct page *page, unsigned long off,
+void __dma_page_dev_to_cpu(struct page *page, unsigned long off,
 	size_t size, enum dma_data_direction dir)
 {
 	phys_addr_t paddr = page_to_phys(page) + off;

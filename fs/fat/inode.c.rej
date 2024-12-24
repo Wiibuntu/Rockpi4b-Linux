@@ -1,0 +1,17 @@
+--- fs/fat/inode.c
++++ fs/fat/inode.c
+@@ -1730,12 +1747,13 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
+ 	fat_inode = new_inode(sb);
+ 	if (!fat_inode)
+ 		goto out_fail;
+-	MSDOS_I(fat_inode)->i_pos = 0;
++	fat_dummy_inode_init(fat_inode);
+ 	sbi->fat_inode = fat_inode;
+ 
+ 	fsinfo_inode = new_inode(sb);
+ 	if (!fsinfo_inode)
+ 		goto out_fail;
++	fat_dummy_inode_init(fsinfo_inode);
+ 	fsinfo_inode->i_ino = MSDOS_FSINFO_INO;
+ 	sbi->fsinfo_inode = fsinfo_inode;
+ 	insert_inode_hash(fsinfo_inode);

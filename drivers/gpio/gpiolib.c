@@ -282,6 +282,13 @@ static struct gpio_desc *gpio_name_to_desc(const char * const name)
 	struct gpio_device *gdev;
 	unsigned long flags;
 
+	chip->data = data;
+
+	if (chip->ngpio == 0) {
+		chip_err(chip, "tried to insert a GPIO chip with zero lines\n");
+		return -EINVAL;
+	}
+
 	spin_lock_irqsave(&gpio_lock, flags);
 
 	list_for_each_entry(gdev, &gpio_devices, list) {
@@ -3814,6 +3821,10 @@ struct gpio_desc *gpiod_get_from_of_node(struct device_node *node,
 	transitory = flags & OF_GPIO_TRANSITORY;
 
 	ret = gpiod_request(desc, label);
+	if (ret)
+		return ERR_PTR(ret);
+
+	ret = gpiod_request(desc, NULL);
 	if (ret)
 		return ERR_PTR(ret);
 

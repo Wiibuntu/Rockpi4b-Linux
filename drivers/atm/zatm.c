@@ -23,6 +23,7 @@
 #include <linux/bitops.h>
 #include <linux/wait.h>
 #include <linux/slab.h>
+#include <linux/nospec.h>
 #include <asm/byteorder.h>
 #include <asm/string.h>
 #include <asm/io.h>
@@ -1498,6 +1499,8 @@ static int zatm_ioctl(struct atm_dev *dev,unsigned int cmd,void __user *arg)
 				if (info.low_water >= info.high_water ||
 				    info.low_water < 0)
 					return -EINVAL;
+				pool = array_index_nospec(pool,
+							  ZATM_LAST_POOL + 1);
 				spin_lock_irqsave(&zatm_dev->lock, flags);
 				zatm_dev->pool_info[pool].low_water =
 				    info.low_water;

@@ -184,6 +184,7 @@ config DELL_WMI_DESCRIPTOR
 config DELL_WMI_AIO
 	tristate "WMI Hotkeys for Dell All-In-One series"
 	depends on ACPI_WMI
+	depends on DMI
 	depends on INPUT
 	select INPUT_SPARSEKMAP
 	---help---
@@ -1077,6 +1078,7 @@ config INTEL_OAKTRAIL
 config SAMSUNG_Q10
 	tristate "Samsung Q10 Extras"
 	depends on ACPI
+	depends on BACKLIGHT_LCD_SUPPORT
 	select BACKLIGHT_CLASS_DEVICE
 	---help---
 	  This driver provides support for backlight control on Samsung Q10

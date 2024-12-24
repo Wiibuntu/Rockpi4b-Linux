@@ -1,0 +1,83 @@
+--- include/crypto/skcipher.h
++++ include/crypto/skcipher.h
+@@ -60,10 +60,80 @@ struct crypto_skcipher {
+ 
+ 	unsigned int ivsize;
+ 	unsigned int reqsize;
++	unsigned int keysize;
+ 
+ 	struct crypto_tfm base;
+ };
+ 
++/**
++ * struct skcipher_alg - symmetric key cipher definition
++ * @min_keysize: Minimum key size supported by the transformation. This is the
++ *		 smallest key length supported by this transformation algorithm.
++ *		 This must be set to one of the pre-defined values as this is
++ *		 not hardware specific. Possible values for this field can be
++ *		 found via git grep "_MIN_KEY_SIZE" include/crypto/
++ * @max_keysize: Maximum key size supported by the transformation. This is the
++ *		 largest key length supported by this transformation algorithm.
++ *		 This must be set to one of the pre-defined values as this is
++ *		 not hardware specific. Possible values for this field can be
++ *		 found via git grep "_MAX_KEY_SIZE" include/crypto/
++ * @setkey: Set key for the transformation. This function is used to either
++ *	    program a supplied key into the hardware or store the key in the
++ *	    transformation context for programming it later. Note that this
++ *	    function does modify the transformation context. This function can
++ *	    be called multiple times during the existence of the transformation
++ *	    object, so one must make sure the key is properly reprogrammed into
++ *	    the hardware. This function is also responsible for checking the key
++ *	    length for validity. In case a software fallback was put in place in
++ *	    the @cra_init call, this function might need to use the fallback if
++ *	    the algorithm doesn't support all of the key sizes.
++ * @encrypt: Encrypt a scatterlist of blocks. This function is used to encrypt
++ *	     the supplied scatterlist containing the blocks of data. The crypto
++ *	     API consumer is responsible for aligning the entries of the
++ *	     scatterlist properly and making sure the chunks are correctly
++ *	     sized. In case a software fallback was put in place in the
++ *	     @cra_init call, this function might need to use the fallback if
++ *	     the algorithm doesn't support all of the key sizes. In case the
++ *	     key was stored in transformation context, the key might need to be
++ *	     re-programmed into the hardware in this function. This function
++ *	     shall not modify the transformation context, as this function may
++ *	     be called in parallel with the same transformation object.
++ * @decrypt: Decrypt a single block. This is a reverse counterpart to @encrypt
++ *	     and the conditions are exactly the same.
++ * @init: Initialize the cryptographic transformation object. This function
++ *	  is used to initialize the cryptographic transformation object.
++ *	  This function is called only once at the instantiation time, right
++ *	  after the transformation context was allocated. In case the
++ *	  cryptographic hardware has some special requirements which need to
++ *	  be handled by software, this function shall check for the precise
++ *	  requirement of the transformation and put any software fallbacks
++ *	  in place.
++ * @exit: Deinitialize the cryptographic transformation object. This is a
++ *	  counterpart to @init, used to remove various changes set in
++ *	  @init.
++ * @ivsize: IV size applicable for transformation. The consumer must provide an
++ *	    IV of exactly that size to perform the encrypt or decrypt operation.
++ * @chunksize: Equal to the block size except for stream ciphers such as
++ *	       CTR where it is set to the underlying block size.
++ *
++ * All fields except @ivsize are mandatory and must be filled.
++ */
++struct skcipher_alg {
++	int (*setkey)(struct crypto_skcipher *tfm, const u8 *key,
++	              unsigned int keylen);
++	int (*encrypt)(struct skcipher_request *req);
++	int (*decrypt)(struct skcipher_request *req);
++	int (*init)(struct crypto_skcipher *tfm);
++	void (*exit)(struct crypto_skcipher *tfm);
++
++	unsigned int min_keysize;
++	unsigned int max_keysize;
++	unsigned int ivsize;
++	unsigned int chunksize;
++
++	struct crypto_alg base;
++};
++
+ #define SKCIPHER_REQUEST_ON_STACK(name, tfm) \
+ 	char __##name##_desc[sizeof(struct skcipher_request) + \
+ 		crypto_skcipher_reqsize(tfm)] CRYPTO_MINALIGN_ATTR; \

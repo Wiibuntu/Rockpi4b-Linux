@@ -124,6 +124,11 @@ extern "C" {
 #define DRM_MODE_DPMS_SUSPEND	2
 #define DRM_MODE_DPMS_OFF	3
 
+/* Content Protection Flags */
+#define DRM_MODE_CONTENT_PROTECTION_UNDESIRED   0
+#define DRM_MODE_CONTENT_PROTECTION_DESIRED     1
+#define DRM_MODE_CONTENT_PROTECTION_ENABLED     2
+
 /* Scaling mode options */
 #define DRM_MODE_SCALE_NONE		0 /* Unmodified timing (display or
 					     software can still scale) */
@@ -190,6 +195,11 @@ extern "C" {
 #define DRM_MODE_REFLECT_MASK (\
 		DRM_MODE_REFLECT_X | \
 		DRM_MODE_REFLECT_Y)
+
+/* Content Protection Flags */
+#define DRM_MODE_CONTENT_PROTECTION_UNDESIRED	0
+#define DRM_MODE_CONTENT_PROTECTION_DESIRED     1
+#define DRM_MODE_CONTENT_PROTECTION_ENABLED     2
 
 /* Content Protection Flags */
 #define DRM_MODE_CONTENT_PROTECTION_UNDESIRED	0
@@ -613,6 +623,44 @@ struct drm_color_lut {
 	__u16 green;
 	__u16 blue;
 	__u16 reserved;
+};
+
+struct drm_color_ctm {
+	/* Conversion matrix in S31.32 format. */
+	__s64 matrix[9];
+};
+
+struct drm_color_lut {
+	/*
+	 * Data is U0.16 fixed point format.
+	 */
+	__u16 red;
+	__u16 green;
+	__u16 blue;
+	__u16 reserved;
+};
+
+enum supported_eotf_type {
+	TRADITIONAL_GAMMA_SDR = 0,
+	TRADITIONAL_GAMMA_HDR,
+	SMPTE_ST2084,
+	HLG,
+	FUTURE_EOTF
+};
+
+/* HDR Metadata */
+struct hdr_static_metadata {
+	uint16_t eotf;
+	uint16_t type;
+	uint16_t display_primaries_x[3];
+	uint16_t display_primaries_y[3];
+	uint16_t white_point_x;
+	uint16_t white_point_y;
+	uint16_t max_mastering_display_luminance;
+	uint16_t min_mastering_display_luminance;
+	uint16_t max_fall;
+	uint16_t max_cll;
+	uint16_t min_cll;
 };
 
 #define DRM_MODE_PAGE_FLIP_EVENT 0x01

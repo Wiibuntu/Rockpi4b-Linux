@@ -19,9 +19,13 @@
 #include <linux/syscore_ops.h>
 #include <dt-bindings/clock/rk3288-cru.h>
 #include "clk.h"
+#include <asm/psci.h>
 
 #define RK3288_GRF_SOC_CON(x)	(0x244 + x * 4)
 #define RK3288_GRF_SOC_STATUS1	0x284
+#define RK3288_UART_FRAC_MAX_PRATE	600000000
+#define RK3288_I2S_FRAC_MAX_PRATE	600000000
+#define RK3288_SPDIF_FRAC_MAX_PRATE	600000000
 
 enum rk3288_plls {
 	apll, dpll, cpll, gpll, npll,
@@ -84,11 +88,12 @@ static struct rockchip_pll_rate_table rk3288_pll_rates[] = {
 	RK3066_PLL_RATE( 742500000, 8, 495, 2),
 	RK3066_PLL_RATE( 696000000, 1, 58, 2),
 	RK3066_PLL_RATE( 600000000, 1, 50, 2),
-	RK3066_PLL_RATE_NB(594000000, 1, 198, 8, 1),
+	RK3066_PLL_RATE_NB(594000000, 2, 198, 4, 1),
 	RK3066_PLL_RATE( 552000000, 1, 46, 2),
 	RK3066_PLL_RATE( 504000000, 1, 84, 4),
 	RK3066_PLL_RATE( 500000000, 3, 125, 2),
 	RK3066_PLL_RATE( 456000000, 1, 76, 4),
+	RK3066_PLL_RATE( 420000000, 1, 70, 4),
 	RK3066_PLL_RATE( 408000000, 1, 68, 4),
 	RK3066_PLL_RATE( 400000000, 3, 100, 2),
 	RK3066_PLL_RATE( 384000000, 2, 128, 4),
@@ -210,9 +215,9 @@ static struct rockchip_pll_clock rk3288_pll_clks[] __initdata = {
 	[dpll] = PLL(pll_rk3066, PLL_DPLL, "dpll", mux_pll_p, 0, RK3288_PLL_CON(4),
 		     RK3288_MODE_CON, 4, 5, 0, NULL),
 	[cpll] = PLL(pll_rk3066, PLL_CPLL, "cpll", mux_pll_p, 0, RK3288_PLL_CON(8),
-		     RK3288_MODE_CON, 8, 7, ROCKCHIP_PLL_SYNC_RATE, rk3288_pll_rates),
+		     RK3288_MODE_CON, 8, 7, 0, rk3288_pll_rates),
 	[gpll] = PLL(pll_rk3066, PLL_GPLL, "gpll", mux_pll_p, 0, RK3288_PLL_CON(12),
-		     RK3288_MODE_CON, 12, 8, ROCKCHIP_PLL_SYNC_RATE, rk3288_pll_rates),
+		     RK3288_MODE_CON, 12, 8, 0, rk3288_pll_rates),
 	[npll] = PLL(pll_rk3066, PLL_NPLL, "npll",  mux_pll_p, 0, RK3288_PLL_CON(16),
 		     RK3288_MODE_CON, 14, 9, ROCKCHIP_PLL_SYNC_RATE, rk3288_pll_rates),
 };
@@ -228,6 +233,38 @@ static struct clk_div_table div_hclk_cpu_t[] = {
 #define DFLAGS CLK_DIVIDER_HIWORD_MASK
 #define GFLAGS (CLK_GATE_HIWORD_MASK | CLK_GATE_SET_TO_DISABLE)
 #define IFLAGS ROCKCHIP_INVERTER_HIWORD_MASK
+
+static struct rockchip_clk_branch rk3288_i2s_fracmux __initdata =
+	MUX(0, "i2s_pre", mux_i2s_pre_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(4), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_spdif_fracmux __initdata =
+	MUX(0, "spdif_mux", mux_spdif_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(5), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_spdif_8ch_fracmux __initdata =
+	MUX(0, "spdif_8ch_mux", mux_spdif_8ch_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(40), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_uart0_fracmux __initdata =
+	MUX(SCLK_UART0, "sclk_uart0", mux_uart0_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(13), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_uart1_fracmux __initdata =
+	MUX(SCLK_UART1, "sclk_uart1", mux_uart1_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(14), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_uart2_fracmux __initdata =
+	MUX(SCLK_UART2, "sclk_uart2", mux_uart2_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(15), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_uart3_fracmux __initdata =
+	MUX(SCLK_UART3, "sclk_uart3", mux_uart3_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(16), 8, 2, MFLAGS);
+
+static struct rockchip_clk_branch rk3288_uart4_fracmux __initdata =
+	MUX(SCLK_UART4, "sclk_uart4", mux_uart4_p, CLK_SET_RATE_PARENT,
+			RK3288_CLKSEL_CON(3), 8, 2, MFLAGS);
 
 static struct rockchip_clk_branch rk3288_i2s_fracmux __initdata =
 	MUX(0, "i2s_pre", mux_i2s_pre_p, CLK_SET_RATE_PARENT,
@@ -307,8 +344,11 @@ static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 
 	GATE(0, "dpll_ddr", "dpll", CLK_IGNORE_UNUSED,
 			RK3288_CLKGATE_CON(0), 8, GFLAGS),
-	GATE(0, "gpll_ddr", "gpll", 0,
+	GATE(0, "gpll_ddr", "gpll", CLK_IGNORE_UNUSED,
 			RK3288_CLKGATE_CON(0), 9, GFLAGS),
+	COMPOSITE_DDRCLK(SCLK_DDRCLK, "sclk_ddrc", mux_ddrphy_p, 0,
+			 RK3288_CLKSEL_CON(26), 2, 1, 0, 0,
+			 ROCKCHIP_DDRCLK_SIP_V2),
 	COMPOSITE_NOGATE(0, "ddrphy", mux_ddrphy_p, CLK_IGNORE_UNUSED,
 			RK3288_CLKSEL_CON(26), 2, 1, MFLAGS, 0, 2,
 					DFLAGS | CLK_DIVIDER_POWER_OF_TWO),
@@ -700,7 +740,7 @@ static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 	GATE(HCLK_USBHOST0, "hclk_host0", "hclk_peri", 0, RK3288_CLKGATE_CON(7), 6, GFLAGS),
 	GATE(HCLK_USBHOST1, "hclk_host1", "hclk_peri", CLK_IGNORE_UNUSED, RK3288_CLKGATE_CON(7), 7, GFLAGS),
 	GATE(HCLK_HSIC, "hclk_hsic", "hclk_peri", 0, RK3288_CLKGATE_CON(7), 8, GFLAGS),
-	GATE(0, "hclk_usb_peri", "hclk_peri", CLK_IGNORE_UNUSED, RK3288_CLKGATE_CON(7), 9, GFLAGS),
+	GATE(HCLK_USB_PERI, "hclk_usb_peri", "hclk_peri", CLK_IGNORE_UNUSED, RK3288_CLKGATE_CON(7), 9, GFLAGS),
 	GATE(0, "hclk_peri_ahb_arbi", "hclk_peri", CLK_IGNORE_UNUSED, RK3288_CLKGATE_CON(7), 10, GFLAGS),
 	GATE(0, "hclk_emem", "hclk_peri", CLK_IGNORE_UNUSED, RK3288_CLKGATE_CON(7), 12, GFLAGS),
 	GATE(0, "hclk_mem", "hclk_peri", CLK_IGNORE_UNUSED, RK3288_CLKGATE_CON(7), 13, GFLAGS),

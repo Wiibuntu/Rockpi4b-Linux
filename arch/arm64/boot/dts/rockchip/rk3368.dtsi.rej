@@ -1,0 +1,1116 @@
+--- arch/arm64/boot/dts/rockchip/rk3368.dtsi
++++ arch/arm64/boot/dts/rockchip/rk3368.dtsi
+@@ -45,6 +45,16 @@
+ #include <dt-bindings/interrupt-controller/irq.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/pinctrl/rockchip.h>
++#include <dt-bindings/power/rk3368-power.h>
++#include <dt-bindings/soc/rockchip,boot-mode.h>
++#include <dt-bindings/soc/rockchip-system-status.h>
++#include <dt-bindings/suspend/rockchip-rk3368.h>
++#include <dt-bindings/thermal/thermal.h>
++#include <dt-bindings/display/mipi_dsi.h>
++#include <dt-bindings/display/drm_mipi_dsi.h>
++#include <dt-bindings/display/media-bus-format.h>
++
++#include "rk3368-dram-default-timing.dtsi"
+ 
+ / {
+ 	compatible = "rockchip,rk3368";
+@@ -53,6 +63,7 @@
+ 	#size-cells = <2>;
+ 
+ 	aliases {
++		ethernet0 = &gmac;
+ 		i2c0 = &i2c0;
+ 		i2c1 = &i2c1;
+ 		i2c2 = &i2c2;
+@@ -76,109 +87,352 @@
+ 		cpu-map {
+ 			cluster0 {
+ 				core0 {
+-					cpu = <&cpu_b0>;
++					cpu = <&cpu_l0>;
+ 				};
+ 				core1 {
+-					cpu = <&cpu_b1>;
++					cpu = <&cpu_l1>;
+ 				};
+ 				core2 {
+-					cpu = <&cpu_b2>;
++					cpu = <&cpu_l2>;
+ 				};
+ 				core3 {
+-					cpu = <&cpu_b3>;
++					cpu = <&cpu_l3>;
+ 				};
+ 			};
+ 
+ 			cluster1 {
+ 				core0 {
+-					cpu = <&cpu_l0>;
++					cpu = <&cpu_b0>;
+ 				};
+ 				core1 {
+-					cpu = <&cpu_l1>;
++					cpu = <&cpu_b1>;
+ 				};
+ 				core2 {
+-					cpu = <&cpu_l2>;
++					cpu = <&cpu_b2>;
+ 				};
+ 				core3 {
+-					cpu = <&cpu_l3>;
++					cpu = <&cpu_b3>;
+ 				};
+ 			};
+ 		};
+ 
+-		idle-states {
+-			entry-method = "psci";
+-
+-			cpu_sleep: cpu-sleep-0 {
+-				compatible = "arm,idle-state";
+-				arm,psci-suspend-param = <0x1010000>;
+-				entry-latency-us = <0x3fffffff>;
+-				exit-latency-us = <0x40000000>;
+-				min-residency-us = <0xffffffff>;
+-			};
+-		};
+-
+ 		cpu_l0: cpu@0 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x0>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKL>;
++			next-level-cache = <&cluster0_l2>;
++			operating-points-v2 = <&cluster0_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_0 &RK3368_CLUSTER_COST_0>;
++			#cooling-cells = <2>; /* min followed by max */
++			dynamic-power-coefficient = <149>;
+ 		};
+ 
+ 		cpu_l1: cpu@1 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x1>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKL>;
++			next-level-cache = <&cluster0_l2>;
++			operating-points-v2 = <&cluster0_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_0 &RK3368_CLUSTER_COST_0>;
+ 		};
+ 
+ 		cpu_l2: cpu@2 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x2>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKL>;
++			next-level-cache = <&cluster0_l2>;
++			operating-points-v2 = <&cluster0_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_0 &RK3368_CLUSTER_COST_0>;
+ 		};
+ 
+ 		cpu_l3: cpu@3 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x3>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKL>;
++			next-level-cache = <&cluster0_l2>;
++			operating-points-v2 = <&cluster0_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_0 &RK3368_CLUSTER_COST_0>;
+ 		};
+ 
+ 		cpu_b0: cpu@100 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x100>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKB>;
++			next-level-cache = <&cluster1_l2>;
++			operating-points-v2 = <&cluster1_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_1 &RK3368_CLUSTER_COST_1>;
++			#cooling-cells = <2>; /* min followed by max */
++			dynamic-power-coefficient = <160>;
+ 		};
+ 
+ 		cpu_b1: cpu@101 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x101>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKB>;
++			next-level-cache = <&cluster1_l2>;
++			operating-points-v2 = <&cluster1_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_1 &RK3368_CLUSTER_COST_1>;
+ 		};
+ 
+ 		cpu_b2: cpu@102 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x102>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKB>;
++			next-level-cache = <&cluster1_l2>;
++			operating-points-v2 = <&cluster1_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_1 &RK3368_CLUSTER_COST_1>;
+ 		};
+ 
+ 		cpu_b3: cpu@103 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0x0 0x103>;
+-			cpu-idle-states = <&cpu_sleep>;
+ 			enable-method = "psci";
++			clocks = <&cru ARMCLKB>;
++			next-level-cache = <&cluster1_l2>;
++			operating-points-v2 = <&cluster1_opp>;
++			sched-energy-costs = <&RK3368_CPU_COST_1 &RK3368_CLUSTER_COST_1>;
++		};
++
++		cluster0_l2: l2-cache0 {
++			compatible = "cache";
++		};
++
++		cluster1_l2: l2-cache1 {
++			compatible = "cache";
++		};
++	};
++
++	cluster0_opp: opp_table0 {
++		compatible = "operating-points-v2";
++		opp-shared;
++		rockchip,leakage-voltage-sel = <
++			1   24   0
++			25  254  1
++		>;
++		nvmem-cells = <&cpu_leakage>;
++		nvmem-cell-names = "cpu_leakage";
++
++		opp-216000000 {
++			opp-hz = /bits/ 64 <216000000>;
++			opp-microvolt = <950000 950000 1350000>;
++			opp-microvolt-L0 = <1050000 1050000 1350000>;
++			opp-microvolt-L1 = <950000 950000 1350000>;
++			clock-latency-ns = <40000>;
++			opp-suspend;
++		};
++		opp-408000000 {
++			opp-hz = /bits/ 64 <408000000>;
++			opp-microvolt = <950000 950000 1350000>;
++			opp-microvolt-L0 = <1050000 1050000 1350000>;
++			opp-microvolt-L1 = <950000 950000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-600000000 {
++			opp-hz = /bits/ 64 <600000000>;
++			opp-microvolt = <950000 950000 1350000>;
++			opp-microvolt-L0 = <1050000 1050000 1350000>;
++			opp-microvolt-L1 = <950000 950000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-816000000 {
++			opp-hz = /bits/ 64 <816000000>;
++			opp-microvolt = <1025000 1025000 1350000>;
++			opp-microvolt-L0 = <1125000 1125000 1350000>;
++			opp-microvolt-L1 = <1025000 1025000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1008000000 {
++			opp-hz = /bits/ 64 <1008000000>;
++			opp-microvolt = <1125000 1125000 1350000>;
++			opp-microvolt-L0 = <1225000 1225000 1350000>;
++			opp-microvolt-L1 = <1125000 1125000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1200000000 {
++			opp-hz = /bits/ 64 <1200000000>;
++			opp-microvolt = <1225000 1225000 1350000>;
++			opp-microvolt-L0 = <1325000 1325000 1350000>;
++			opp-microvolt-L1 = <1225000 1225000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++	};
++
++	cluster1_opp: opp_table1 {
++		compatible = "operating-points-v2";
++		opp-shared;
++		rockchip,avs-sclae = <36>;
++		rockchip,leakage-scaling-sel = <
++			1   24   36
++			25  254  0
++		>;
++		clocks = <&cru PLL_APLLB>;
++		rockchip,leakage-voltage-sel = <
++			1   24   0
++			25  50   1
++			51  254  2
++		>;
++		nvmem-cells = <&cpu_leakage>;
++		nvmem-cell-names = "cpu_leakage";
++
++		opp-216000000 {
++			opp-hz = /bits/ 64 <216000000>;
++			opp-microvolt = <950000 950000 1350000>;
++			opp-microvolt-L0 = <1050000 1050000 1350000>;
++			opp-microvolt-L1 = <950000 950000 1350000>;
++			opp-microvolt-L2 = <950000 950000 1350000>;
++			clock-latency-ns = <40000>;
++			opp-suspend;
++		};
++		opp-408000000 {
++			opp-hz = /bits/ 64 <408000000>;
++			opp-microvolt = <950000 950000 1350000>;
++			opp-microvolt-L0 = <1050000 1050000 1350000>;
++			opp-microvolt-L1 = <950000 950000 1350000>;
++			opp-microvolt-L2 = <950000 950000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-600000000 {
++			opp-hz = /bits/ 64 <600000000>;
++			opp-microvolt = <950000 950000 1350000>;
++			opp-microvolt-L0 = <1050000 1050000 1350000>;
++			opp-microvolt-L1 = <950000 950000 1350000>;
++			opp-microvolt-L2 = <950000 950000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-816000000 {
++			opp-hz = /bits/ 64 <816000000>;
++			opp-microvolt = <975000 975000 1350000>;
++			opp-microvolt-L0 = <1075000 1075000 1350000>;
++			opp-microvolt-L1 = <975000 975000 1350000>;
++			opp-microvolt-L2 = <975000 975000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1008000000 {
++			opp-hz = /bits/ 64 <1008000000>;
++			opp-microvolt = <1050000 1050000 1350000>;
++			opp-microvolt-L0 = <1150000 1150000 1350000>;
++			opp-microvolt-L1 = <1050000 1050000 1350000>;
++			opp-microvolt-L2 = <1025000 1025000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1200000000 {
++			opp-hz = /bits/ 64 <1200000000>;
++			opp-microvolt = <1150000 1150000 1350000>;
++			opp-microvolt-L0 = <1250000 1250000 1350000>;
++			opp-microvolt-L1 = <1150000 1150000 1350000>;
++			opp-microvolt-L2 = <1125000 1125000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1296000000 {
++			opp-hz = /bits/ 64 <1296000000>;
++			opp-microvolt = <1225000 1225000 1350000>;
++			opp-microvolt-L0 = <1350000 1350000 1350000>;
++			opp-microvolt-L1 = <1225000 1225000 1350000>;
++			opp-microvolt-L2 = <1200000 1200000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1416000000 {
++			opp-hz = /bits/ 64 <1416000000>;
++			opp-microvolt = <1300000 1300000 1350000>;
++			opp-microvolt-L0 = <1350000 1350000 1350000>;
++			opp-microvolt-L1 = <1300000 1300000 1350000>;
++			opp-microvolt-L2 = <1275000 1275000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++		opp-1512000000 {
++			opp-hz = /bits/ 64 <1512000000>;
++			opp-microvolt = <1350000 1350000 1350000>;
++			opp-microvolt-L0 = <1350000 1350000 1350000>;
++			opp-microvolt-L1 = <1350000 1350000 1350000>;
++			opp-microvolt-L2 = <1325000 1325000 1350000>;
++			clock-latency-ns = <40000>;
++		};
++	};
++
++	energy-costs {
++		RK3368_CPU_COST_0: rk3368-core-cost0 {
++			busy-cost-data = <
++				146    44	/*  216M */
++				276    72	/*  408M */
++				406    99	/*  600M */
++				552    147	/*  816M */
++				682    200	/* 1008M */
++				812    255	/* 1200M */
++			>;
++			idle-cost-data = <
++				  6
++				  6
++				  0
++			>;
++		};
++
++		RK3368_CPU_COST_1: rk3368-core-cost1 {
++			busy-cost-data = <
++				146    53	/*  216M */
++				276    86	/*  408M */
++				406    118	/*  600M */
++				552    166	/*  816M */
++				682    226	/* 1008M */
++				812    309	/* 1200M */
++				878    371	/* 1200M */
++				959    446	/* 1416M */
++				1024   513	/* 1512M */
++			>;
++			idle-cost-data = <
++				   6
++				   6
++				   0
++			>;
++		};
++
++		RK3368_CLUSTER_COST_0: rk3368-cluster-cost0 {
++			busy-cost-data = <
++				146    9	/*  216M */
++				276    14	/*  408M */
++				406    20	/*  600M */
++				552    29	/*  816M */
++				682    40	/* 1008M */
++				812    51	/* 1200M */
++			>;
++			idle-cost-data = <
++				56
++				56
++				56
++			>;
++		};
++
++		RK3368_CLUSTER_COST_1: rk3368-cluster-cost1 {
++			busy-cost-data = <
++				146    11	/*  216M */
++				276    17	/*  408M */
++				406    24	/*  600M */
++				552    33	/*  816M */
++				682    45	/* 1008M */
++				812    62	/* 1200M */
++				878    74	/* 1200M */
++				959    89	/* 1416M */
++				1024   103	/* 1512M */
++			>;
++			idle-cost-data = <
++				56
++				56
++				56
++			>;
+ 		};
+ 	};
+ 
+@@ -255,9 +540,10 @@
+ 	sdmmc: dwmmc@ff0c0000 {
+ 		compatible = "rockchip,rk3368-dw-mshc", "rockchip,rk3288-dw-mshc";
+ 		reg = <0x0 0xff0c0000 0x0 0x4000>;
+-		clock-freq-min-max = <400000 150000000>;
+-		clocks = <&cru HCLK_SDMMC>, <&cru SCLK_SDMMC>;
+-		clock-names = "biu", "ciu";
++		max-frequency = <150000000>;
++		clocks = <&cru HCLK_SDMMC>, <&cru SCLK_SDMMC>,
++			 <&cru SCLK_SDMMC_DRV>, <&cru SCLK_SDMMC_SAMPLE>;
++		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
+ 		status = "disabled";
+@@ -266,10 +552,10 @@
+ 	sdio0: dwmmc@ff0d0000 {
+ 		compatible = "rockchip,rk3368-dw-mshc", "rockchip,rk3288-dw-mshc";
+ 		reg = <0x0 0xff0d0000 0x0 0x4000>;
+-		clock-freq-min-max = <400000 150000000>;
++		max-frequency = <150000000>;
+ 		clocks = <&cru HCLK_SDIO0>, <&cru SCLK_SDIO0>,
+ 			 <&cru SCLK_SDIO0_DRV>, <&cru SCLK_SDIO0_SAMPLE>;
+-		clock-names = "biu", "ciu", "ciu_drv", "ciu_sample";
++		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>;
+ 		status = "disabled";
+@@ -278,9 +564,10 @@
+ 	emmc: dwmmc@ff0f0000 {
+ 		compatible = "rockchip,rk3368-dw-mshc", "rockchip,rk3288-dw-mshc";
+ 		reg = <0x0 0xff0f0000 0x0 0x4000>;
+-		clock-freq-min-max = <400000 150000000>;
+-		clocks = <&cru HCLK_EMMC>, <&cru SCLK_EMMC>;
+-		clock-names = "biu", "ciu";
++		max-frequency = <150000000>;
++		clocks = <&cru HCLK_EMMC>, <&cru SCLK_EMMC>,
++			 <&cru SCLK_EMMC_DRV>, <&cru SCLK_EMMC_SAMPLE>;
++		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+ 		status = "disabled";
+@@ -293,6 +580,8 @@
+ 		#io-channel-cells = <1>;
+ 		clocks = <&cru SCLK_SARADC>, <&cru PCLK_SARADC>;
+ 		clock-names = "saradc", "apb_pclk";
++		resets = <&cru SRST_SARADC>;
++		reset-names = "saradc-apb";
+ 		status = "disabled";
+ 	};
+ 
+@@ -335,16 +624,29 @@
+ 		status = "disabled";
+ 	};
+ 
+-	i2c1: i2c@ff140000 {
++	i2c0: i2c@ff650000 {
++		compatible = "rockchip,rk3368-i2c", "rockchip,rk3288-i2c";
++		reg = <0x0 0xff650000 0x0 0x1000>;
++		clocks = <&cru PCLK_I2C0>;
++		clock-names = "i2c";
++		interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&i2c0_xfer>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++		status = "disabled";
++	};
++
++	i2c2: i2c@ff140000 {
+ 		compatible = "rockchip,rk3368-i2c", "rockchip,rk3288-i2c";
+ 		reg = <0x0 0xff140000 0x0 0x1000>;
+ 		interrupts = <GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>;
+ 		#address-cells = <1>;
+ 		#size-cells = <0>;
+ 		clock-names = "i2c";
+-		clocks = <&cru PCLK_I2C1>;
++		clocks = <&cru PCLK_I2C2>;
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&i2c1_xfer>;
++		pinctrl-0 = <&i2c2_xfer>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -564,35 +960,71 @@
+ 		clock-names = "otg";
+ 		dr_mode = "otg";
+ 		g-np-tx-fifo-size = <16>;
+-		g-rx-fifo-size = <275>;
+-		g-tx-fifo-size = <256 128 128 64 64 32>;
++		g-rx-fifo-size = <280>;
++		g-tx-fifo-size = <256 128 128 64 32 16>;
+ 		g-use-dma;
++		phys = <&u2phy_otg>;
++		phy-names = "usb2-phy";
+ 		status = "disabled";
+ 	};
+ 
+-	i2c0: i2c@ff650000 {
+-		compatible = "rockchip,rk3368-i2c", "rockchip,rk3288-i2c";
+-		reg = <0x0 0xff650000 0x0 0x1000>;
+-		clocks = <&cru PCLK_I2C0>;
+-		clock-names = "i2c";
+-		interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+-		pinctrl-names = "default";
+-		pinctrl-0 = <&i2c0_xfer>;
+-		#address-cells = <1>;
+-		#size-cells = <0>;
+-		status = "disabled";
++	ddrpctl: syscon@ff610000 {
++		compatible = "rockchip,rk3368-ddrpctl", "syscon";
++		reg = <0x0 0xff610000 0x0 0x400>;
+ 	};
+ 
+-	i2c2: i2c@ff660000 {
++	i2c1: i2c@ff660000 {
+ 		compatible = "rockchip,rk3368-i2c", "rockchip,rk3288-i2c";
+ 		reg = <0x0 0xff660000 0x0 0x1000>;
+ 		interrupts = <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>;
+ 		#address-cells = <1>;
+ 		#size-cells = <0>;
+ 		clock-names = "i2c";
+-		clocks = <&cru PCLK_I2C2>;
++		clocks = <&cru PCLK_I2C1>;
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&i2c2_xfer>;
++		pinctrl-0 = <&i2c1_xfer>;
++		status = "disabled";
++	};
++
++	pwm0: pwm@ff680000 {
++		compatible = "rockchip,rk3368-pwm", "rockchip,rk3288-pwm";
++		reg = <0x0 0xff680000 0x0 0x10>;
++		#pwm-cells = <3>;
++		pinctrl-names = "active";
++		pinctrl-0 = <&pwm0_pin>;
++		clocks = <&cru PCLK_PWM1>;
++		clock-names = "pwm";
++		status = "disabled";
++	};
++
++	pwm1: pwm@ff680010 {
++		compatible = "rockchip,rk3368-pwm", "rockchip,rk3288-pwm";
++		reg = <0x0 0xff680010 0x0 0x10>;
++		#pwm-cells = <3>;
++		pinctrl-names = "active";
++		pinctrl-0 = <&pwm1_pin>;
++		clocks = <&cru PCLK_PWM1>;
++		clock-names = "pwm";
++		status = "disabled";
++	};
++
++	pwm2: pwm@ff680020 {
++		compatible = "rockchip,rk3368-pwm", "rockchip,rk3288-pwm";
++		reg = <0x0 0xff680020 0x0 0x10>;
++		#pwm-cells = <3>;
++		clocks = <&cru PCLK_PWM1>;
++		clock-names = "pwm";
++		status = "disabled";
++	};
++
++	pwm3: pwm@ff680030 {
++		compatible = "rockchip,rk3368-pwm", "rockchip,rk3288-pwm";
++		reg = <0x0 0xff680030 0x0 0x10>;
++		#pwm-cells = <3>;
++		pinctrl-names = "active";
++		pinctrl-0 = <&pwm3_pin>;
++		clocks = <&cru PCLK_PWM1>;
++		clock-names = "pwm";
+ 		status = "disabled";
+ 	};
+ 
+@@ -609,9 +1041,235 @@
+ 		status = "disabled";
+ 	};
+ 
++	mbox: mbox@ff6b0000 {
++		compatible = "rockchip,rk3368-mailbox";
++		reg = <0x0 0xff6b0000 0x0 0x1000>;
++		interrupts = <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 147 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 148 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&cru PCLK_MAILBOX>;
++		clock-names = "pclk_mailbox";
++		#mbox-cells = <1>;
++		status = "disabled";
++	};
++
++	mailbox: mailbox@ff6b0000 {
++		compatible = "rockchip,rk3368-mbox-legacy";
++		reg = <0x0 0xff6b0000 0x0 0x1000>,
++		      <0x0 0xff8cf000 0x0 0x1000>; /* the end 4k of sram */
++		interrupts = <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 147 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 148 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&cru PCLK_MAILBOX>;
++		clock-names = "pclk_mailbox";
++		#mbox-cells = <1>;
++		status = "disabled";
++	};
++
++	mailbox_scpi: mailbox-scpi {
++		compatible = "rockchip,rk3368-scpi-legacy";
++		mboxes = <&mailbox 0>, <&mailbox 1>, <&mailbox 2>;
++		chan-nums = <3>;
++		status = "disabled";
++	};
++
++	qos_iep: qos@ffad0000 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0000 0x0 0x20>;
++	};
++
++	qos_isp_r0: qos@ffad0080 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0080 0x0 0x20>;
++	};
++
++	qos_isp_r1: qos@ffad0100 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0100 0x0 0x20>;
++	};
++
++	qos_isp_w0: qos@ffad0180 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0180 0x0 0x20>;
++	};
++
++	qos_isp_w1: qos@ffad0200 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0200 0x0 0x20>;
++	};
++
++	qos_vip: qos@ffad0280 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0280 0x0 0x20>;
++	};
++
++	qos_vop: qos@ffad0300 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0300 0x0 0x20>;
++	};
++
++	qos_rga_r: qos@ffad0380 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0380 0x0 0x20>;
++	};
++
++	qos_rga_w: qos@ffad0400 {
++		compatible = "syscon";
++		reg = <0x0 0xffad0400 0x0 0x20>;
++	};
++
++	qos_hevc_r: qos@ffae0000 {
++		compatible = "syscon";
++		reg = <0x0 0xffae0000 0x0 0x20>;
++	};
++
++	qos_vpu_r: qos@ffae0100 {
++		compatible = "syscon";
++		reg = <0x0 0xffae0100 0x0 0x20>;
++	};
++
++	qos_vpu_w: qos@ffae0180 {
++		compatible = "syscon";
++		reg = <0x0 0xffae0180 0x0 0x20>;
++	};
++
++	qos_gpu: qos@ffaf0000 {
++		compatible = "syscon";
++		reg = <0x0 0xffaf0000 0x0 0x20>;
++	};
++
++	pmu: power-management@ff730000 {
++		compatible = "rockchip,rk3368-pmu", "syscon", "simple-mfd";
++		reg = <0x0 0xff730000 0x0 0x1000>;
++
++		power: power-controller {
++			compatible = "rockchip,rk3368-power-controller";
++			#power-domain-cells = <1>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			/*
++			 * Note: Although SCLK_* are the working clocks
++			 * of device without including on the NOC, needed for
++			 * synchronous reset.
++			 *
++			 * The clocks on the which NOC:
++			 * ACLK_IEP/ACLK_VIP/ACLK_VOP0 are on ACLK_VIO0_NIU.
++			 * ACLK_ISP/ACLK_VOP1 are on ACLK_VIO1_NIU.
++			 * ACLK_RGA is on ACLK_RGA_NIU.
++			 * The others (HCLK_*,PLCK_*) are on HCLK_VIO_NIU.
++			 *
++			 * Which clock are device clocks:
++			 *	clocks		devices
++			 *	*_IEP		IEP:Image Enhancement Processor
++			 *	*_ISP		ISP:Image Signal Processing
++			 *	*_VIP		VIP:Video Input Processor
++			 *	*_VOP*		VOP:Visual Output Processor
++			 *	*_RGA		RGA
++			 *	*_EDP*		EDP
++			 *	*_DPHY*		LVDS
++			 *	*_HDMI		HDMI
++			 *	*_MIPI_*	MIPI
++			 */
++			pd_vio@RK3368_PD_VIO {
++				reg = <RK3368_PD_VIO>;
++				clocks = <&cru ACLK_IEP>,
++					 <&cru ACLK_ISP>,
++					 <&cru ACLK_VIP>,
++					 <&cru ACLK_RGA>,
++					 <&cru ACLK_VOP>,
++					 <&cru ACLK_VOP_IEP>,
++					 <&cru DCLK_VOP>,
++					 <&cru HCLK_IEP>,
++					 <&cru HCLK_ISP>,
++					 <&cru HCLK_RGA>,
++					 <&cru HCLK_VIP>,
++					 <&cru HCLK_VOP>,
++					 <&cru HCLK_VIO_HDCPMMU>,
++					 <&cru PCLK_EDP_CTRL>,
++					 <&cru PCLK_HDMI_CTRL>,
++					 <&cru PCLK_HDCP>,
++					 <&cru PCLK_ISP>,
++					 <&cru PCLK_VIP>,
++					 <&cru PCLK_DPHYRX>,
++					 <&cru PCLK_DPHYTX0>,
++					 <&cru PCLK_MIPI_CSI>,
++					 <&cru PCLK_MIPI_DSI0>,
++					 <&cru SCLK_VOP0_PWM>,
++					 <&cru SCLK_EDP_24M>,
++					 <&cru SCLK_EDP>,
++					 <&cru SCLK_HDCP>,
++					 <&cru SCLK_ISP>,
++					 <&cru SCLK_RGA>,
++					 <&cru SCLK_HDMI_CEC>,
++					 <&cru SCLK_HDMI_HDCP>;
++				pm_qos = <&qos_iep>,
++					 <&qos_isp_r0>,
++					 <&qos_isp_r1>,
++					 <&qos_isp_w0>,
++					 <&qos_isp_w1>,
++					 <&qos_vip>,
++					 <&qos_vop>,
++					 <&qos_rga_r>,
++					 <&qos_rga_w>;
++			};
++			/*
++			 * Note: ACLK_VCODEC/HCLK_VCODEC are VCODEC
++			 * (video endecoder & decoder) clocks that on the
++			 * ACLK_VCODEC_NIU and HCLK_VCODEC_NIU (NOC).
++			 */
++			pd_video@RK3368_PD_VIDEO {
++				reg = <RK3368_PD_VIDEO>;
++				clocks = <&cru ACLK_VIDEO>,
++					 <&cru HCLK_VIDEO>,
++					 <&cru SCLK_HEVC_CABAC>,
++					 <&cru SCLK_HEVC_CORE>;
++				pm_qos = <&qos_hevc_r>,
++					 <&qos_vpu_r>,
++					 <&qos_vpu_w>;
++			};
++			/*
++			 * Note: ACLK_GPU is the GPU clock,
++			 * and on the ACLK_GPU_NIU (NOC).
++			 */
++			pd_gpu_1@RK3368_PD_GPU_1 {
++				reg = <RK3368_PD_GPU_1>;
++				clocks = <&cru ACLK_GPU_CFG>,
++					 <&cru ACLK_GPU_MEM>,
++					 <&cru SCLK_GPU_CORE>;
++				pm_qos = <&qos_gpu>;
++			};
++		};
++	};
++
+ 	pmugrf: syscon@ff738000 {
+-		compatible = "rockchip,rk3368-pmugrf", "syscon";
++		compatible = "rockchip,rk3368-pmugrf", "syscon", "simple-mfd";
+ 		reg = <0x0 0xff738000 0x0 0x1000>;
++
++		pmu_io_domains: io-domains {
++			compatible = "rockchip,rk3368-pmu-io-voltage-domain";
++			status = "disabled";
++		};
++
++		pvtm_clock: pvtm-clock {
++			compatible = "rockchip,rk3368-pvtm-clock";
++			#clock-cells = <0>;
++			clocks = <&cru SCLK_PVTM_PMU>;
++			clock-names = "pvtm_pmu_clk";
++			clock-output-names = "xin32k_pvtm";
++			status = "okay";
++		};
++
++		reboot-mode {
++			compatible = "syscon-reboot-mode";
++			offset = <0x200>;
++			mode-normal = <BOOT_NORMAL>;
++			mode-recovery = <BOOT_RECOVERY>;
++			mode-bootloader = <BOOT_FASTBOOT>;
++			mode-loader = <BOOT_BL_DOWNLOAD>;
++		};
+ 	};
+ 
+ 	cru: clock-controller@ff760000 {
+@@ -620,11 +1278,178 @@
+ 		rockchip,grf = <&grf>;
+ 		#clock-cells = <1>;
+ 		#reset-cells = <1>;
++		assigned-clocks =
++			<&cru ARMCLKL>, <&cru ARMCLKB>,
++			<&cru PLL_GPLL>, <&cru PLL_CPLL>,
++			<&cru ACLK_BUS>, <&cru ACLK_PERI>,
++			<&cru HCLK_BUS>, <&cru HCLK_PERI>,
++			<&cru PCLK_BUS>, <&cru PCLK_PERI>,
++			<&cru ACLK_CCI_PRE>;
++		assigned-clock-rates =
++			<816000000>, <816000000>,
++			<576000000>, <400000000>,
++			<300000000>, <300000000>,
++			<150000000>, <150000000>,
++			<75000000>, <75000000>,
++			<576000000>;
+ 	};
+ 
+ 	grf: syscon@ff770000 {
+-		compatible = "rockchip,rk3368-grf", "syscon";
++		compatible = "rockchip,rk3368-grf", "syscon", "simple-mfd";
+ 		reg = <0x0 0xff770000 0x0 0x1000>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		edp_phy: edp-phy {
++			compatible = "rockchip,rk3368-dp-phy";
++			clocks = <&cru SCLK_EDP_24M>;
++			clock-names = "24m";
++			resets = <&cru SRST_EDP_24M>;
++			reset-names = "edp_24m";
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
++		io_domains: io-domains {
++			compatible = "rockchip,rk3368-io-voltage-domain";
++			status = "disabled";
++		};
++
++		lvds: lvds {
++			compatible = "rockchip,rk3368-lvds";
++			phys = <&video_phy>;
++			phy-names = "phy";
++			status = "disabled";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++
++					lvds_in_vop: endpoint {
++						remote-endpoint = <&vop_out_lvds>;
++					};
++				};
++			};
++		};
++
++		rgb: rgb {
++			compatible = "rockchip,rk3368-rgb";
++			phys = <&video_phy>;
++			phy-names = "phy";
++			pinctrl-names = "default", "sleep";
++			pinctrl-0 = <&lcdc_rgb_pins>;
++			pinctrl-1 = <&lcdc_sleep_pins>;
++			status = "disabled";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++
++					rgb_in_vop: endpoint {
++						remote-endpoint = <&vop_out_rgb>;
++					};
++				};
++			};
++		};
++
++		u2phy: usb2-phy@700 {
++			compatible = "rockchip,rk3368-usb2phy";
++			reg = <0x700 0x2c>;
++			clocks = <&cru SCLK_OTGPHY0>;
++			clock-names = "phyclk";
++			#clock-cells = <0>;
++			clock-output-names = "usbotg_out";
++			assigned-clocks = <&cru SCLK_USBPHY480M>;
++			assigned-clock-parents = <&u2phy>;
++			status = "disabled";
++
++			u2phy_otg: otg-port {
++				#phy-cells = <0>;
++				interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH>,
++					     <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>,
++					     <GIC_SPI 95 IRQ_TYPE_LEVEL_HIGH>;
++				interrupt-names = "otg-bvalid", "otg-id",
++						  "linestate";
++				status = "disabled";
++			};
++
++			u2phy_host: host-port {
++				#phy-cells = <0>;
++				interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
++				interrupt-names = "linestate";
++				status = "disabled";
++			};
++		};
++
++		dfi: dfi {
++			compatible = "rockchip,rk3368-dfi";
++			status = "disabled";
++		};
++	};
++
++	dmc: dmc {
++		compatible = "rockchip,rk3368-dmc";
++		devfreq-events = <&dfi>;
++		clocks = <&cru SCLK_DDRCLK>, <&cru PCLK_DDRPHY>,
++			 <&cru PCLK_DDRUPCTL>;
++		clock-names = "dmc_clk", "pclk_phy", "pclk_upctl";
++		ddr_timing = <&ddr_timing>;
++		upthreshold = <50>;
++		downdifferential = <20>;
++		operating-points-v2 = <&dmc_opp_table>;
++		vop-dclk-mode = <0>;
++		system-status-freq = <
++			/*system status		freq(KHz)*/
++			SYS_STATUS_NORMAL	600000
++			SYS_STATUS_REBOOT	600000
++			SYS_STATUS_SUSPEND	192000
++			SYS_STATUS_VIDEO_1080P	300000
++			SYS_STATUS_VIDEO_4K	600000
++			SYS_STATUS_PERFORMANCE	600000
++			SYS_STATUS_BOOST	396000
++			SYS_STATUS_DUALVIEW	600000
++			SYS_STATUS_ISP		528000
++		>;
++		auto-min-freq = <396000>;
++		auto-freq-en = <0>;
++		status = "disabled";
++	};
++
++	dmc_opp_table: opp_table2 {
++		compatible = "operating-points-v2";
++
++		opp-192000000 {
++			opp-hz = /bits/ 64 <192000000>;
++			opp-microvolt = <1100000>;
++		};
++
++		opp-240000000 {
++			opp-hz = /bits/ 64 <240000000>;
++			opp-microvolt = <1100000>;
++		};
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			opp-microvolt = <1100000>;
++		};
++		opp-396000000 {
++			opp-hz = /bits/ 64 <396000000>;
++			opp-microvolt = <1100000>;
++		};
++		opp-528000000 {
++			opp-hz = /bits/ 64 <528000000>;
++			opp-microvolt = <1100000>;
++		};
++		opp-600000000 {
++			opp-hz = /bits/ 64 <600000000>;
++			opp-microvolt = <1100000>;
++		};
+ 	};
+ 
+ 	wdt: watchdog@ff800000 {
+@@ -1055,13 +2293,109 @@
+ 		#address-cells = <0>;
+ 
+ 		reg = <0x0 0xffb71000 0x0 0x1000>,
+-		      <0x0 0xffb72000 0x0 0x1000>,
++		      <0x0 0xffb72000 0x0 0x2000>,
+ 		      <0x0 0xffb74000 0x0 0x2000>,
+ 		      <0x0 0xffb76000 0x0 0x2000>;
+ 		interrupts = <GIC_PPI 9
+ 		      (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>;
+ 	};
+ 
++	gpu: rogue-g6110@ffa30000 {
++		compatible = "arm,rogue-G6110", "arm,rk3368-gpu";
++		reg = <0x0 0xffa30000 0x0 0x10000>;
++		clocks =
++			<&cru SCLK_GPU_CORE>,
++			<&cru ACLK_GPU_MEM>,
++			<&cru ACLK_GPU_CFG>;
++		clock-names =
++			"sclk_gpu_core",
++			"aclk_gpu_mem",
++			"aclk_gpu_cfg";
++		interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "rogue-g6110-irq";
++		power-domains = <&power RK3368_PD_GPU_1>;
++		operating-points-v2 = <&gpu_opp_table>;
++		#cooling-cells = <2>; /* min followed by max */
++		gpu_power_model: power_model {
++			compatible = "arm,mali-simple-power-model";
++			voltage = <900>;
++			frequency = <500>;
++			static-power = <300>;
++			dynamic-power = <396>;
++			ts = <32000 4700 (-80) 2>;
++			thermal-zone = "gpu-thermal";
++		};
++	};
++
++	gpu_opp_table: gpu_opp_table {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-200000000 {
++			opp-hz = /bits/ 64 <200000000>;
++			opp-microvolt = <1100000>;
++		};
++		opp-288000000 {
++			opp-hz = /bits/ 64 <288000000>;
++			opp-microvolt = <1100000>;
++		};
++		opp-400000000 {
++			opp-hz = /bits/ 64 <400000000>;
++			opp-microvolt = <1100000>;
++		};
++		opp-576000000 {
++			opp-hz = /bits/ 64 <576000000>;
++			opp-microvolt = <1200000>;
++		};
++	};
++
++	nocp_peri: nocp-peri@ffac1000 {
++		compatible = "rockchip,rk3368-nocp";
++		reg = <0x0 0xffac1000 0x0 0x400>;
++	};
++
++	nocp_core: nocp-core@ffac1400 {
++		compatible = "rockchip,rk3368-nocp";
++		reg = <0x0 0xffac1400 0x0 0x400>;
++	};
++
++	nocp_gpu: nocp-gpu@ffac1800 {
++		compatible = "rockchip,rk3368-nocp";
++		reg = <0x0 0xffac1800 0x0 0x400>;
++	};
++
++	nocp_vpu: nocp-vpu@ffac2000 {
++		compatible = "rockchip,rk3368-nocp";
++		reg = <0x0 0xffac2000 0x0 0x400>;
++	};
++
++	nocp_vop: nocp-vop@ffac2400 {
++		compatible = "rockchip,rk3368-nocp";
++		reg = <0x0 0xffac2400 0x0 0x400>;
++	};
++
++	nocp_rga: nocp-rga@ffac2800 {
++		compatible = "rockchip,rk3368-nocp";
++		reg = <0x0 0xffac2800 0x0 0x400>;
++	};
++
++	efuse: efuse@ffb00000 {
++		compatible = "rockchip,rk3368-efuse";
++		reg = <0x0 0xffb00000 0x0 0x20>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		clocks = <&cru PCLK_EFUSE256>;
++		clock-names = "pclk_efuse";
++
++		/* Data cells */
++		cpu_leakage: cpu-leakage@17 {
++			reg = <0x17 0x1>;
++		};
++		temp_adjust: temp-adjust@1f {
++			reg = <0x1f 0x1>;
++		};
++	};
++
+ 	pinctrl: pinctrl {
+ 		compatible = "rockchip,rk3368-pinctrl";
+ 		rockchip,grf = <&grf>;
+@@ -1368,7 +2770,7 @@
+ 				rockchip,pins = <2 10 RK_FUNC_1 &pcfg_pull_up>;
+ 			};
+ 
+-			sdmmc_cd: sdmcc-cd {
++			sdmmc_cd: sdmmc-cd {
+ 				rockchip,pins = <2 11 RK_FUNC_1 &pcfg_pull_up>;
+ 			};
+ 

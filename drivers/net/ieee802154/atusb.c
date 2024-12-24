@@ -627,6 +627,7 @@ static int atusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 		msleep(atusb->data->t_channel_switch);
 	}
 
+	kfree(build);
 	return ret;
 }
 

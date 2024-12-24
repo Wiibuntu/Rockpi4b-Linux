@@ -306,6 +306,76 @@ void touch_softlockup_watchdog_sync(void)
 	__this_cpu_write(watchdog_touch_ts, 0);
 }
 
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
+static unsigned int watchdog_next_cpu(unsigned int cpu)
+{
+	cpumask_t cpus = watchdog_cpus;
+	unsigned int next_cpu;
+
+	next_cpu = cpumask_next(cpu, &cpus);
+	if (next_cpu >= nr_cpu_ids)
+		next_cpu = cpumask_first(&cpus);
+
+	if (next_cpu == cpu)
+		return nr_cpu_ids;
+
+	return next_cpu;
+}
+
+static int is_hardlockup_other_cpu(unsigned int cpu)
+{
+	unsigned long hrint = per_cpu(hrtimer_interrupts, cpu);
+
+	if (per_cpu(hrtimer_interrupts_saved, cpu) == hrint)
+		return 1;
+
+	per_cpu(hrtimer_interrupts_saved, cpu) = hrint;
+	return 0;
+}
+
+static void watchdog_check_hardlockup_other_cpu(void)
+{
+	unsigned int next_cpu;
+
+	/*
+	 * Test for hardlockups every 3 samples.  The sample period is
+	 *  watchdog_thresh * 2 / 5, so 3 samples gets us back to slightly over
+	 *  watchdog_thresh (over by 20%).
+	 */
+	if (__this_cpu_read(hrtimer_interrupts) % 3 != 0)
+		return;
+
+	/* check for a hardlockup on the next cpu */
+	next_cpu = watchdog_next_cpu(smp_processor_id());
+	if (next_cpu >= nr_cpu_ids)
+		return;
+
+	smp_rmb();
+
+	if (per_cpu(watchdog_nmi_touch, next_cpu) == true) {
+		per_cpu(watchdog_nmi_touch, next_cpu) = false;
+		return;
+	}
+
+	if (is_hardlockup_other_cpu(next_cpu)) {
+		/* only warn once */
+		if (per_cpu(hard_watchdog_warn, next_cpu) == true)
+			return;
+
+		if (hardlockup_panic)
+			panic("Watchdog detected hard LOCKUP on cpu %u", next_cpu);
+		else
+			WARN(1, "Watchdog detected hard LOCKUP on cpu %u", next_cpu);
+
+		per_cpu(hard_watchdog_warn, next_cpu) = true;
+	} else {
+		per_cpu(hard_watchdog_warn, next_cpu) = false;
+	}
+}
+#else
+static inline void watchdog_check_hardlockup_other_cpu(void) { return; }
+#endif
+
 static int is_softlockup(unsigned long touch_ts)
 {
 	unsigned long now = get_timestamp();
@@ -348,6 +418,9 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 
 	/* kick the hardlockup detector */
 	watchdog_interrupt_count();
+
+	/* test for hardlockups on the next cpu */
+	watchdog_check_hardlockup_other_cpu();
 
 	/* kick the softlockup detector */
 	wake_up_process(__this_cpu_read(softlockup_watchdog));
@@ -737,7 +810,7 @@ int proc_soft_watchdog(struct ctl_table *table, int write,
 int proc_watchdog_thresh(struct ctl_table *table, int write,
 			 void __user *buffer, size_t *lenp, loff_t *ppos)
 {
-	int err, old;
+	int err, old, new;
 
 	mutex_lock(&watchdog_mutex);
 

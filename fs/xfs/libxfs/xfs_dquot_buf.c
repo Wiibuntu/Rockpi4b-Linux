@@ -167,7 +167,8 @@ xfs_dquot_buf_verify_crc(
 STATIC xfs_failaddr_t
 xfs_dquot_buf_verify(
 	struct xfs_mount	*mp,
-	struct xfs_buf		*bp)
+	struct xfs_buf		*bp,
+	int			warn)
 {
 	struct xfs_dqblk	*d = (struct xfs_dqblk *)bp->b_addr;
 	xfs_failaddr_t		fa;

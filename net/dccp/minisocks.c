@@ -156,6 +156,13 @@ struct sock *dccp_check_req(struct sock *sk, struct sk_buff *skb,
 	 */
 	spin_lock_bh(&dreq->dreq_lock);
 
+	/* TCP/DCCP listeners became lockless.
+	 * DCCP stores complex state in its request_sock, so we need
+	 * a protection for them, now this code runs without being protected
+	 * by the parent (listener) lock.
+	 */
+	spin_lock_bh(&dreq->dreq_lock);
+
 	/* Check for retransmitted REQUEST */
 	if (dccp_hdr(skb)->dccph_type == DCCP_PKT_REQUEST) {
 

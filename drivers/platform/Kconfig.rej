@@ -1,0 +1,11 @@
+--- drivers/platform/Kconfig
++++ drivers/platform/Kconfig
+@@ -4,8 +4,6 @@ endif
+ if MIPS
+ source "drivers/platform/mips/Kconfig"
+ endif
+-if GOLDFISH
+ source "drivers/platform/goldfish/Kconfig"
+-endif
+ 
+ source "drivers/platform/chrome/Kconfig"

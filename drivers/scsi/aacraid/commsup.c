@@ -459,6 +459,12 @@ int aac_queue_get(struct aac_dev * dev, u32 * index, u32 qid, struct hw_fib * hw
 		hw_fib->header.u.ReceiverFibAddress = hw_fib->header.SenderFibAddress;  /* Let the adapter now where to find its data */
 		map = 0;
 	}
+
+	/*
+	 *Assign vector numbers to fibs
+	 */
+	aac_fib_vector_assign(dev);
+
 	/*
 	 *	If MapFib is true than we need to map the Fib and put pointers
 	 *	in the queue entry.

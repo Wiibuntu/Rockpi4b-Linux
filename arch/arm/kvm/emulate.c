@@ -165,6 +165,40 @@ unsigned long *__vcpu_spsr(struct kvm_vcpu *vcpu)
  * Inject exceptions into the guest
  */
 
+/*
+ * Switch to an exception mode, updating both CPSR and SPSR. Follow
+ * the logic described in AArch32.EnterMode() from the ARMv8 ARM.
+ */
+static void kvm_update_psr(struct kvm_vcpu *vcpu, unsigned long mode)
+{
+	unsigned long cpsr = *vcpu_cpsr(vcpu);
+	u32 sctlr = vcpu->arch.cp15[c1_SCTLR];
+
+	*vcpu_cpsr(vcpu) = (cpsr & ~MODE_MASK) | mode;
+
+	switch (mode) {
+	case FIQ_MODE:
+		*vcpu_cpsr(vcpu) |= PSR_F_BIT;
+		/* Fall through */
+	case ABT_MODE:
+	case IRQ_MODE:
+		*vcpu_cpsr(vcpu) |= PSR_A_BIT;
+		/* Fall through */
+	default:
+		*vcpu_cpsr(vcpu) |= PSR_I_BIT;
+	}
+
+	*vcpu_cpsr(vcpu) &= ~(PSR_IT_MASK | PSR_J_BIT | PSR_E_BIT | PSR_T_BIT);
+
+	if (sctlr & SCTLR_TE)
+		*vcpu_cpsr(vcpu) |= PSR_T_BIT;
+	if (sctlr & SCTLR_EE)
+		*vcpu_cpsr(vcpu) |= PSR_E_BIT;
+
+	/* Note: These now point to the mode banked copies */
+	*vcpu_spsr(vcpu) = cpsr;
+}
+
 /**
  * kvm_inject_vabt - inject an async abort / SError into the guest
  * @vcpu: The VCPU to receive the exception

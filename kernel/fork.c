@@ -70,6 +70,7 @@
 #include <linux/tsacct_kern.h>
 #include <linux/cn_proc.h>
 #include <linux/freezer.h>
+#include <linux/kaiser.h>
 #include <linux/delayacct.h>
 #include <linux/taskstats_kern.h>
 #include <linux/random.h>
@@ -1115,6 +1116,7 @@ struct mm_struct *mm_access(struct task_struct *task, unsigned int mode)
 	}
 	mutex_unlock(&task->signal->cred_guard_mutex);
 
+	mm->user_ns = get_user_ns(user_ns);
 	return mm;
 }
 
@@ -1385,7 +1387,9 @@ static int copy_sighand(unsigned long clone_flags, struct task_struct *tsk)
 		return -ENOMEM;
 
 	atomic_set(&sig->count, 1);
+	spin_lock_irq(&current->sighand->siglock);
 	memcpy(sig->action, current->sighand->action, sizeof(sig->action));
+	spin_unlock_irq(&current->sighand->siglock);
 	return 0;
 }
 
@@ -1829,6 +1833,7 @@ static __latent_entropy struct task_struct *copy_process(
 	if ((clone_flags & (CLONE_VM|CLONE_VFORK)) == CLONE_VM)
 		sas_ss_reset(p);
 
+	threadgroup_change_begin(current);
 	/*
 	 * Syscall tracing and stepping should be turned off in the
 	 * child regardless of CLONE_PTRACE.
@@ -1873,6 +1878,17 @@ static __latent_entropy struct task_struct *copy_process(
 	retval = cgroup_can_fork(p);
 	if (retval)
 		goto bad_fork_free_pid;
+
+	/*
+	 * From this point on we must avoid any synchronous user-space
+	 * communication until we take the tasklist-lock. In particular, we do
+	 * not want user-space to be able to predict the process start-time by
+	 * stalling fork(2) after we recorded the start_time but before it is
+	 * visible to the system.
+	 */
+
+	p->start_time = ktime_get_ns();
+	p->real_start_time = ktime_get_boot_ns();
 
 	/*
 	 * Make it visible to the rest of the system, but dont wake it up yet.

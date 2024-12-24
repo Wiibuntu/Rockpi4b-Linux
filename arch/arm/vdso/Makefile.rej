@@ -1,0 +1,9 @@
+--- arch/arm/vdso/Makefile
++++ arch/arm/vdso/Makefile
+@@ -74,5 +74,5 @@ $(MODLIB)/vdso: FORCE
+ 	@mkdir -p $(MODLIB)/vdso
+ 
+ PHONY += vdso_install
+-vdso_install: $(obj)/vdso.so.dbg $(MODLIB)/vdso FORCE
++vdso_install: $(obj)/vdso.so.dbg $(MODLIB)/vdso
+ 	$(call cmd,vdso_install)

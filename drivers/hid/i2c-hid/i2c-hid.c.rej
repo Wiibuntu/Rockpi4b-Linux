@@ -1,0 +1,140 @@
+--- drivers/hid/i2c-hid/i2c-hid.c
++++ drivers/hid/i2c-hid/i2c-hid.c
+@@ -38,6 +38,9 @@
+ #include <linux/acpi.h>
+ #include <linux/of.h>
+ #include <linux/gpio/consumer.h>
++#include <linux/fb.h>
++#include <linux/notifier.h>
++#include <linux/rk_keys.h>
+ 
+ #include <linux/i2c/i2c-hid.h>
+ 
+@@ -137,10 +140,10 @@ struct i2c_hid {
+ 						   * register of the HID
+ 						   * descriptor. */
+ 	unsigned int		bufsize;	/* i2c buffer size */
+-	char			*inbuf;		/* Input buffer */
+-	char			*rawbuf;	/* Raw Input buffer */
+-	char			*cmdbuf;	/* Command buffer */
+-	char			*argsbuf;	/* Command arguments buffer */
++	u8			*inbuf;		/* Input buffer */
++	u8			*rawbuf;	/* Raw Input buffer */
++	u8			*cmdbuf;	/* Command buffer */
++	u8			*argsbuf;	/* Command arguments buffer */
+ 
+ 	unsigned long		flags;		/* device flags */
+ 
+@@ -151,8 +154,40 @@ struct i2c_hid {
+ 	struct i2c_hid_platform_data pdata;
+ 
+ 	bool			irq_wake_enabled;
++
++	struct notifier_block fb_notif;
++	int is_suspend;
+ };
+ 
++static int ihid_fb_notifier_callback(struct notifier_block *self,
++				     unsigned long action, void *data)
++{
++	struct i2c_hid *ihid;
++	struct fb_event *event = data;
++
++	ihid = container_of(self, struct i2c_hid, fb_notif);
++
++	if (action == FB_EARLY_EVENT_BLANK) {
++		switch (*((int *)event->data)) {
++		case FB_BLANK_UNBLANK:
++			break;
++		default:
++			ihid->is_suspend = 1;
++			break;
++		}
++	} else if (action == FB_EVENT_BLANK) {
++		switch (*((int *)event->data)) {
++		case FB_BLANK_UNBLANK:
++			ihid->is_suspend = 0;
++			break;
++		default:
++			break;
++		}
++	}
++
++	return NOTIFY_OK;
++}
++
+ static int __i2c_hid_command(struct i2c_client *client,
+ 		const struct i2c_hid_cmd *command, u8 reportID,
+ 		u8 reportType, u8 *args, int args_len,
+@@ -282,17 +317,21 @@ static int i2c_hid_set_or_send_report(struct i2c_client *client, u8 reportType,
+ 	u16 dataRegister = le16_to_cpu(ihid->hdesc.wDataRegister);
+ 	u16 outputRegister = le16_to_cpu(ihid->hdesc.wOutputRegister);
+ 	u16 maxOutputLength = le16_to_cpu(ihid->hdesc.wMaxOutputLength);
++	u16 size;
++	int args_len;
++	int index = 0;
++
++	i2c_hid_dbg(ihid, "%s\n", __func__);
++
++	if (data_len > ihid->bufsize)
++		return -EINVAL;
+ 
+-	/* hid_hw_* already checked that data_len < HID_MAX_BUFFER_SIZE */
+-	u16 size =	2			/* size */ +
++	size =		2			/* size */ +
+ 			(reportID ? 1 : 0)	/* reportID */ +
+ 			data_len		/* buf */;
+-	int args_len =	(reportID >= 0x0F ? 1 : 0) /* optional third byte */ +
++	args_len =	(reportID >= 0x0F ? 1 : 0) /* optional third byte */ +
+ 			2			/* dataRegister */ +
+ 			size			/* args */;
+-	int index = 0;
+-
+-	i2c_hid_dbg(ihid, "%s\n", __func__);
+ 
+ 	if (!use_data && maxOutputLength == 0)
+ 		return -ENOSYS;
+@@ -383,7 +431,8 @@ static int i2c_hid_hwreset(struct i2c_client *client)
+ 
+ static void i2c_hid_get_input(struct i2c_hid *ihid)
+ {
+-	int ret, ret_size;
++	int ret;
++	u32 ret_size;
+ 	int size = le16_to_cpu(ihid->hdesc.wMaxInputLength);
+ 
+ 	if (size > ihid->bufsize)
+@@ -408,7 +457,7 @@ static void i2c_hid_get_input(struct i2c_hid *ihid)
+ 		return;
+ 	}
+ 
+-	if (ret_size > size) {
++	if ((ret_size > size) || (ret_size < 2)) {
+ 		dev_err(&ihid->client->dev, "%s: incomplete report (%d/%d)\n",
+ 			__func__, size, ret_size);
+ 		return;
+@@ -539,7 +591,8 @@ static int i2c_hid_alloc_buffers(struct i2c_hid *ihid, size_t report_size)
+ {
+ 	/* the worst case is computed from the set_report command with a
+ 	 * reportID > 15 and the maximum report length */
+-	int args_len = sizeof(__u8) + /* optional ReportID byte */
++	int args_len = sizeof(__u8) + /* ReportID */
++		       sizeof(__u8) + /* optional ReportID byte */
+ 		       sizeof(__u16) + /* data register */
+ 		       sizeof(__u16) + /* size of the report */
+ 		       report_size; /* report */
+@@ -1154,9 +1225,11 @@ static int i2c_hid_resume(struct device *dev)
+ 	int wake_status;
+ 
+ 	enable_irq(ihid->irq);
+-	ret = i2c_hid_hwreset(client);
+-	if (ret)
+-		return ret;
++	if (!device_may_wakeup(&client->dev)) {
++		ret = i2c_hid_hwreset(client);
++		if (ret)
++			return ret;
++	}
+ 
+ 	if (device_may_wakeup(&client->dev) && ihid->irq_wake_enabled) {
+ 		wake_status = disable_irq_wake(ihid->irq);

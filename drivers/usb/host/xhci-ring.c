@@ -334,6 +334,8 @@ static void xhci_handle_stopped_cmd_ring(struct xhci_hcd *xhci,
 		xhci_mod_cmd_timer(xhci, XHCI_CMD_DEFAULT_TIMEOUT);
 		xhci_ring_cmd_db(xhci);
 	}
+
+	trace_xhci_inc_enq(ring);
 }
 
 /* Must be called with xhci->lock held, releases and aquires lock back */
@@ -1213,6 +1215,9 @@ static void xhci_handle_cmd_config_ep(struct xhci_hcd *xhci, int slot_id,
 	drop_flags = le32_to_cpu(ctrl_ctx->drop_flags);
 	/* Input ctx add_flags are the endpoint index plus one */
 	ep_index = xhci_last_valid_endpoint(add_flags) - 1;
+
+	ep_ctx = xhci_get_ep_ctx(xhci, virt_dev->out_ctx, ep_index);
+	trace_xhci_handle_cmd_config_ep(ep_ctx);
 
 	ep_ctx = xhci_get_ep_ctx(xhci, virt_dev->out_ctx, ep_index);
 	trace_xhci_handle_cmd_config_ep(ep_ctx);
@@ -2739,6 +2744,8 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 		ret = IRQ_HANDLED;
 		goto out;
 	}
+
+	trace_xhci_handle_event(xhci->event_ring, &event->generic);
 
 	/*
 	 * Clear the op reg interrupt status first,

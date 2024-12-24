@@ -1,0 +1,81 @@
+--- kernel/power/suspend.c
++++ kernel/power/suspend.c
+@@ -268,16 +270,18 @@ static int suspend_test(int level)
+  */
+ static int suspend_prepare(suspend_state_t state)
+ {
+-	int error;
++	int error, nr_calls = 0;
+ 
+ 	if (!sleep_state_supported(state))
+ 		return -EPERM;
+ 
+ 	pm_prepare_console();
+ 
+-	error = pm_notifier_call_chain(PM_SUSPEND_PREPARE);
+-	if (error)
++	error = __pm_notifier_call_chain(PM_SUSPEND_PREPARE, -1, &nr_calls);
++	if (error) {
++		nr_calls--;
+ 		goto Finish;
++	}
+ 
+ 	trace_suspend_resume(TPS("freeze_processes"), 0, true);
+ 	error = suspend_freeze_processes();
+@@ -288,7 +292,7 @@ static int suspend_prepare(suspend_state_t state)
+ 	suspend_stats.failed_freeze++;
+ 	dpm_save_failed_step(SUSPEND_FREEZE);
+  Finish:
+-	pm_notifier_call_chain(PM_POST_SUSPEND);
++	__pm_notifier_call_chain(PM_POST_SUSPEND, nr_calls, NULL);
+ 	pm_restore_console();
+ 	return error;
+ }
+@@ -323,7 +328,11 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
+ 
+ 	error = dpm_suspend_late(PMSG_SUSPEND);
+ 	if (error) {
++		last_dev = suspend_stats.last_failed_dev + REC_FAILED_NUM - 1;
++		last_dev %= REC_FAILED_NUM;
+ 		printk(KERN_ERR "PM: late suspend of devices failed\n");
++		log_suspend_abort_reason("%s device failed to power down",
++			suspend_stats.failed_devs[last_dev]);
+ 		goto Platform_finish;
+ 	}
+ 	error = platform_suspend_prepare_late(state);
+@@ -332,7 +341,11 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
+ 
+ 	error = dpm_suspend_noirq(PMSG_SUSPEND);
+ 	if (error) {
++		last_dev = suspend_stats.last_failed_dev + REC_FAILED_NUM - 1;
++		last_dev %= REC_FAILED_NUM;
+ 		printk(KERN_ERR "PM: noirq suspend of devices failed\n");
++		log_suspend_abort_reason("noirq suspend of %s device failed",
++			suspend_stats.failed_devs[last_dev]);
+ 		goto Platform_early_resume;
+ 	}
+ 	error = platform_suspend_prepare_noirq(state);
+@@ -425,6 +443,7 @@ int suspend_devices_and_enter(suspend_state_t state)
+ 	error = dpm_suspend_start(PMSG_SUSPEND);
+ 	if (error) {
+ 		pr_err("PM: Some devices failed to suspend, or early wake event detected\n");
++		log_suspend_abort_reason("Some devices failed to suspend, or early wake event detected");
+ 		goto Recover_platform;
+ 	}
+ 	suspend_test_finish("suspend devices");
+@@ -552,6 +583,7 @@ int pm_suspend(suspend_state_t state)
+ 	if (state <= PM_SUSPEND_ON || state >= PM_SUSPEND_MAX)
+ 		return -EINVAL;
+ 
++	pm_suspend_marker("entry");
+ 	error = enter_state(state);
+ 	if (error) {
+ 		suspend_stats.fail++;
+@@ -559,6 +591,7 @@ int pm_suspend(suspend_state_t state)
+ 	} else {
+ 		suspend_stats.success++;
+ 	}
++	pm_suspend_marker("exit");
+ 	return error;
+ }
+ EXPORT_SYMBOL(pm_suspend);

@@ -59,6 +59,10 @@
 #include "braille.h"
 #include "internal.h"
 
+#ifdef CONFIG_EARLY_PRINTK_DIRECT
+extern void printascii(char *);
+#endif
+
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
 	MESSAGE_LOGLEVEL_DEFAULT,	/* default_message_loglevel */
@@ -427,7 +431,11 @@ static u32 console_idx;
 static u64 clear_seq;
 static u32 clear_idx;
 
+#ifdef CONFIG_PRINTK_PROCESS
+#define PREFIX_MAX		48
+#else
 #define PREFIX_MAX		32
+#endif
 #define LOG_LINE_MAX		(1024 - PREFIX_MAX)
 
 #define LOG_LEVEL(v)		((v) & 0x07)
@@ -495,6 +503,25 @@ static u32 log_next(u32 idx)
 	}
 	return idx + msg->len;
 }
+
+#ifdef CONFIG_PRINTK_PROCESS
+static bool printk_process = true;
+static size_t print_process(const struct printk_log *msg, char *buf)
+{
+	if (!printk_process)
+		return 0;
+
+	if (!buf)
+		return snprintf(NULL, 0, "%c[%1d:%15s:%5d] ", ' ', 0, " ", 0);
+
+	return sprintf(buf, "%c[%1d:%15s:%5d] ",
+			msg->in_interrupt ? 'I' : ' ',
+			msg->cpu,
+			msg->process,
+			msg->pid);
+}
+module_param_named(process, printk_process, bool, 0644);
+#endif
 
 /*
  * Check whether there is enough free space for the given message.
@@ -631,6 +658,16 @@ static int log_store(int facility, int level,
 		msg->ts_nsec = local_clock();
 	memset(log_dict(msg) + dict_len, 0, pad_len);
 	msg->len = size;
+
+#ifdef CONFIG_PRINTK_PROCESS
+	if (printk_process) {
+		strncpy(msg->process, current->comm, sizeof(msg->process) - 1);
+		msg->process[sizeof(msg->process) - 1] = '\0';
+		msg->pid = task_pid_nr(current);
+		msg->cpu = raw_smp_processor_id();
+		msg->in_interrupt = in_interrupt() ? 1 : 0;
+	}
+#endif
 
 	/* insert message */
 	log_next_idx += msg->len;
@@ -1047,7 +1084,12 @@ static void __init log_buf_len_update(unsigned size)
 /* save requested log_buf_len since it's too early to process it */
 static int __init log_buf_len_setup(char *str)
 {
-	unsigned size = memparse(str, &str);
+	unsigned int size;
+
+	if (!str)
+		return -EINVAL;
+
+	size = memparse(str, &str);
 
 	log_buf_len_update(size);
 
@@ -1244,6 +1286,9 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 	}
 
 	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
+#ifdef CONFIG_PRINTK_PROCESS
+	len += print_process(msg, buf ? buf + len : NULL);
+#endif
 	return len;
 }
 
@@ -1880,6 +1925,10 @@ asmlinkage int vprintk_emit(int facility, int level,
 		}
 	}
 
+#ifdef CONFIG_EARLY_PRINTK_DIRECT
+	printascii(text);
+#endif
+
 	if (level == LOGLEVEL_DEFAULT)
 		level = default_message_loglevel;
 
@@ -2471,6 +2520,25 @@ void console_unblank(void)
 	for_each_console(c)
 		if ((c->flags & CON_ENABLED) && c->unblank)
 			c->unblank();
+	console_unlock();
+}
+
+/**
+ * console_flush_on_panic - flush console content on panic
+ *
+ * Immediately output all pending messages no matter what.
+ */
+void console_flush_on_panic(void)
+{
+	/*
+	 * If someone else is holding the console lock, trylock will fail
+	 * and may_schedule may be set.  Ignore and proceed to unlock so
+	 * that messages are flushed out.  As this can be called from any
+	 * context and we don't want to get preempted while flushing,
+	 * ensure may_schedule is cleared.
+	 */
+	console_trylock();
+	console_may_schedule = 0;
 	console_unlock();
 }
 

@@ -444,6 +444,13 @@ static inline bool acpi_data_node_match(const struct fwnode_handle *fwnode,
 		(!strcmp(to_acpi_data_node(fwnode)->name, name)) : false;
 }
 
+static inline bool acpi_data_node_match(struct fwnode_handle *fwnode,
+					const char *name)
+{
+	return is_acpi_data_node(fwnode) ?
+		(!strcmp(to_acpi_data_node(fwnode)->name, name)) : false;
+}
+
 static inline struct fwnode_handle *acpi_fwnode_handle(struct acpi_device *adev)
 {
 	return &adev->fwnode;

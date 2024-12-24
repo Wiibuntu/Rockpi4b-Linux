@@ -826,6 +826,27 @@ static int con_out_kvec_skip(struct ceph_connection *con)
 	return skip;
 }
 
+/*
+ * Chop off a kvec from the end.  Return residual number of bytes for
+ * that kvec, i.e. how many bytes would have been written if the kvec
+ * hadn't been nuked.
+ */
+static int con_out_kvec_skip(struct ceph_connection *con)
+{
+	int off = con->out_kvec_cur - con->out_kvec;
+	int skip = 0;
+
+	if (con->out_kvec_bytes > 0) {
+		skip = con->out_kvec[off + con->out_kvec_left - 1].iov_len;
+		BUG_ON(con->out_kvec_bytes < skip);
+		BUG_ON(!con->out_kvec_left);
+		con->out_kvec_bytes -= skip;
+		con->out_kvec_left--;
+	}
+
+	return skip;
+}
+
 #ifdef CONFIG_BLOCK
 
 /*
@@ -1237,6 +1258,13 @@ static void ceph_msg_data_advance(struct ceph_msg_data_cursor *cursor,
 		new_piece = true;
 	}
 	cursor->need_crc = new_piece;
+}
+
+static size_t sizeof_footer(struct ceph_connection *con)
+{
+	return (con->peer_features & CEPH_FEATURE_MSG_AUTH) ?
+	    sizeof(struct ceph_msg_footer) :
+	    sizeof(struct ceph_msg_footer_old);
 }
 
 static size_t sizeof_footer(struct ceph_connection *con)
@@ -2086,6 +2114,23 @@ static int process_connect(struct ceph_connection *con)
 		if (ret < 0) {
 			con->error_msg = "bad authorize reply";
 			return ret;
+		}
+	}
+
+	if (con->auth_reply_buf) {
+		int len = le32_to_cpu(con->in_reply.authorizer_len);
+
+		/*
+		 * Any connection that defines ->get_authorizer()
+		 * should also define ->verify_authorizer_reply().
+		 * See get_connect_authorizer().
+		 */
+		if (len) {
+			ret = con->ops->verify_authorizer_reply(con, 0);
+			if (ret < 0) {
+				con->error_msg = "bad authorize reply";
+				return ret;
+			}
 		}
 	}
 
@@ -3220,9 +3265,10 @@ void ceph_con_keepalive(struct ceph_connection *con)
 	dout("con_keepalive %p\n", con);
 	mutex_lock(&con->mutex);
 	clear_standby(con);
+	con_flag_set(con, CON_FLAG_KEEPALIVE_PENDING);
 	mutex_unlock(&con->mutex);
-	if (con_flag_test_and_set(con, CON_FLAG_KEEPALIVE_PENDING) == 0 &&
-	    con_flag_test_and_set(con, CON_FLAG_WRITE_PENDING) == 0)
+
+	if (con_flag_test_and_set(con, CON_FLAG_WRITE_PENDING) == 0)
 		queue_con(con);
 }
 EXPORT_SYMBOL(ceph_con_keepalive);

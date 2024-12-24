@@ -384,6 +384,7 @@ mode_fixup(struct drm_atomic_state *state)
 
 	for_each_new_connector_in_state(state, connector, new_conn_state, i) {
 		const struct drm_encoder_helper_funcs *funcs;
+		const struct drm_connector_helper_funcs *conn_funcs;
 		struct drm_encoder *encoder;
 
 		WARN_ON(!!new_conn_state->best_encoder != !!new_conn_state->crtc);
@@ -935,12 +936,32 @@ disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		DRM_DEBUG_ATOMIC("disabling [ENCODER:%d:%s]\n",
 				 encoder->base.id, encoder->name);
 
+		conn_funcs = connector->helper_private;
+		if (connector->loader_protect) {
+			drm_bridge_pre_enable(encoder->bridge);
+
+			if (funcs->enable)
+				funcs->enable(encoder);
+			else
+				funcs->commit(encoder);
+
+			drm_bridge_enable(encoder->bridge);
+
+			if (conn_funcs->loader_protect)
+				conn_funcs->loader_protect(connector, false);
+			connector->loader_protect = false;
+		}
 		/*
 		 * Each encoder has at most one connector (since we always steal
 		 * it away), so we won't call disable hooks twice.
 		 */
 		drm_bridge_disable(encoder->bridge);
 
+		if (encoder->loader_protect) {
+			if (funcs->loader_protect)
+				funcs->loader_protect(encoder, false);
+			encoder->loader_protect = false;
+		}
 		/* Right function depends upon target state. */
 		if (funcs) {
 			if (new_conn_state->crtc && funcs->prepare)
@@ -1135,6 +1156,7 @@ crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		drm_bridge_mode_set(encoder->bridge, mode, adjusted_mode);
 	}
 }
+EXPORT_SYMBOL(drm_atomic_helper_framebuffer_changed);
 
 /**
  * drm_atomic_helper_commit_modeset_disables - modeset commit to disable outputs
@@ -1606,6 +1628,10 @@ int drm_atomic_helper_commit(struct drm_device *dev,
 
 	INIT_WORK(&state->commit_work, commit_work);
 
+	ret = drm_atomic_helper_setup_commit(state, async);
+	if (ret)
+		return ret;
+
 	ret = drm_atomic_helper_prepare_planes(dev, state);
 	if (ret)
 		return ret;
@@ -1659,6 +1685,306 @@ err:
 	return ret;
 }
 EXPORT_SYMBOL(drm_atomic_helper_commit);
+
+static int stall_checks(struct drm_crtc *crtc, bool nonblock)
+{
+	struct drm_crtc_commit *commit, *stall_commit = NULL;
+	bool completed = true;
+	int i;
+	long ret = 0;
+
+	spin_lock(&crtc->commit_lock);
+	i = 0;
+	list_for_each_entry(commit, &crtc->commit_list, commit_entry) {
+		if (i == 0) {
+			completed = try_wait_for_completion(&commit->flip_done);
+			/* Userspace is not allowed to get ahead of the previous
+			 * commit with nonblocking ones. */
+			if (!completed && nonblock) {
+				spin_unlock(&crtc->commit_lock);
+				return -EBUSY;
+			}
+		} else if (i == 1) {
+			stall_commit = commit;
+			drm_crtc_commit_get(stall_commit);
+		} else
+			break;
+
+		i++;
+	}
+	spin_unlock(&crtc->commit_lock);
+
+	if (!stall_commit)
+		return 0;
+
+	/* We don't want to let commits get ahead of cleanup work too much,
+	 * stalling on 2nd previous commit means triple-buffer won't ever stall.
+	 */
+	ret = wait_for_completion_interruptible_timeout(&commit->cleanup_done,
+							10*HZ);
+	if (ret == 0)
+		DRM_ERROR("[CRTC:%d] cleanup_done timed out\n",
+			  crtc->base.id);
+
+	drm_crtc_commit_put(stall_commit);
+
+	return ret < 0 ? ret : 0;
+}
+
+/**
+ * drm_atomic_helper_setup_commit - setup possibly nonblocking commit
+ * @state: new modeset state to be committed
+ * @nonblock: whether nonblocking behavior is requested.
+ *
+ * This function prepares @state to be used by the atomic helper's support for
+ * nonblocking commits. Drivers using the nonblocking commit infrastructure
+ * should always call this function from their ->atomic_commit hook.
+ *
+ * To be able to use this support drivers need to use a few more helper
+ * functions. drm_atomic_helper_wait_for_dependencies() must be called before
+ * actually committing the hardware state, and for nonblocking commits this call
+ * must be placed in the async worker. See also drm_atomic_helper_swap_state()
+ * and it's stall parameter, for when a driver's commit hooks look at the
+ * ->state pointers of struct &drm_crtc, &drm_plane or &drm_connector directly.
+ *
+ * Completion of the hardware commit step must be signalled using
+ * drm_atomic_helper_commit_hw_done(). After this step the driver is not allowed
+ * to read or change any permanent software or hardware modeset state. The only
+ * exception is state protected by other means than &drm_modeset_lock locks.
+ * Only the free standing @state with pointers to the old state structures can
+ * be inspected, e.g. to clean up old buffers using
+ * drm_atomic_helper_cleanup_planes().
+ *
+ * At the very end, before cleaning up @state drivers must call
+ * drm_atomic_helper_commit_cleanup_done().
+ *
+ * This is all implemented by in drm_atomic_helper_commit(), giving drivers a
+ * complete and esay-to-use default implementation of the atomic_commit() hook.
+ *
+ * The tracking of asynchronously executed and still pending commits is done
+ * using the core structure &drm_crtc_commit.
+ *
+ * By default there's no need to clean up resources allocated by this function
+ * explicitly: drm_atomic_state_default_clear() will take care of that
+ * automatically.
+ *
+ * Returns:
+ *
+ * 0 on success. -EBUSY when userspace schedules nonblocking commits too fast,
+ * -ENOMEM on allocation failures and -EINTR when a signal is pending.
+ */
+int drm_atomic_helper_setup_commit(struct drm_atomic_state *state,
+				   bool nonblock)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc_commit *commit;
+	int i, ret;
+
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		commit = kzalloc(sizeof(*commit), GFP_KERNEL);
+		if (!commit)
+			return -ENOMEM;
+
+		init_completion(&commit->flip_done);
+		init_completion(&commit->hw_done);
+		init_completion(&commit->cleanup_done);
+		INIT_LIST_HEAD(&commit->commit_entry);
+		kref_init(&commit->ref);
+		commit->crtc = crtc;
+
+		state->crtc_commits[i] = commit;
+
+		ret = stall_checks(crtc, nonblock);
+		if (ret)
+			return ret;
+
+		/* Drivers only send out events when at least either current or
+		 * new CRTC state is active. Complete right away if everything
+		 * stays off. */
+		if (!crtc->state->active && !crtc_state->active) {
+			complete_all(&commit->flip_done);
+			continue;
+		}
+
+		/* Legacy cursor updates are fully unsynced. */
+		if (state->legacy_cursor_update) {
+			complete_all(&commit->flip_done);
+			continue;
+		}
+
+		if (!crtc_state->event) {
+			commit->event = kzalloc(sizeof(*commit->event),
+						GFP_KERNEL);
+			if (!commit->event)
+				return -ENOMEM;
+
+			crtc_state->event = commit->event;
+		}
+
+		crtc_state->event->base.completion = &commit->flip_done;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_atomic_helper_setup_commit);
+
+
+static struct drm_crtc_commit *preceeding_commit(struct drm_crtc *crtc)
+{
+	struct drm_crtc_commit *commit;
+	int i = 0;
+
+	list_for_each_entry(commit, &crtc->commit_list, commit_entry) {
+		/* skip the first entry, that's the current commit */
+		if (i == 1)
+			return commit;
+		i++;
+	}
+
+	return NULL;
+}
+
+/**
+ * drm_atomic_helper_wait_for_dependencies - wait for required preceeding commits
+ * @state: new modeset state to be committed
+ *
+ * This function waits for all preceeding commits that touch the same CRTC as
+ * @state to both be committed to the hardware (as signalled by
+ * drm_atomic_helper_commit_hw_done) and executed by the hardware (as signalled
+ * by calling drm_crtc_vblank_send_event on the event member of
+ * &drm_crtc_state).
+ *
+ * This is part of the atomic helper support for nonblocking commits, see
+ * drm_atomic_helper_setup_commit() for an overview.
+ */
+void drm_atomic_helper_wait_for_dependencies(struct drm_atomic_state *state)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc_commit *commit;
+	int i;
+	long ret;
+
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		spin_lock(&crtc->commit_lock);
+		commit = preceeding_commit(crtc);
+		if (commit)
+			drm_crtc_commit_get(commit);
+		spin_unlock(&crtc->commit_lock);
+
+		if (!commit)
+			continue;
+
+		ret = wait_for_completion_timeout(&commit->hw_done,
+						  10*HZ);
+		if (ret == 0)
+			DRM_ERROR("[CRTC:%d] hw_done timed out\n",
+				  crtc->base.id);
+
+		/* Currently no support for overwriting flips, hence
+		 * stall for previous one to execute completely. */
+		ret = wait_for_completion_timeout(&commit->flip_done,
+						  10*HZ);
+		if (ret == 0)
+			DRM_ERROR("[CRTC:%d] flip_done timed out\n",
+				  crtc->base.id);
+
+		drm_crtc_commit_put(commit);
+	}
+}
+EXPORT_SYMBOL(drm_atomic_helper_wait_for_dependencies);
+
+/**
+ * drm_atomic_helper_commit_hw_done - setup possible nonblocking commit
+ * @state: new modeset state to be committed
+ *
+ * This function is used to signal completion of the hardware commit step. After
+ * this step the driver is not allowed to read or change any permanent software
+ * or hardware modeset state. The only exception is state protected by other
+ * means than &drm_modeset_lock locks.
+ *
+ * Drivers should try to postpone any expensive or delayed cleanup work after
+ * this function is called.
+ *
+ * This is part of the atomic helper support for nonblocking commits, see
+ * drm_atomic_helper_setup_commit() for an overview.
+ */
+void drm_atomic_helper_commit_hw_done(struct drm_atomic_state *state)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc_commit *commit;
+	int i;
+
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		commit = state->crtc_commits[i];
+		if (!commit)
+			continue;
+
+		/* backend must have consumed any event by now */
+		WARN_ON(crtc->state->event);
+		spin_lock(&crtc->commit_lock);
+		complete_all(&commit->hw_done);
+		spin_unlock(&crtc->commit_lock);
+	}
+}
+EXPORT_SYMBOL(drm_atomic_helper_commit_hw_done);
+
+/**
+ * drm_atomic_helper_commit_cleanup_done - signal completion of commit
+ * @state: new modeset state to be committed
+ *
+ * This signals completion of the atomic update @state, including any cleanup
+ * work. If used, it must be called right before calling
+ * drm_atomic_state_free().
+ *
+ * This is part of the atomic helper support for nonblocking commits, see
+ * drm_atomic_helper_setup_commit() for an overview.
+ */
+void drm_atomic_helper_commit_cleanup_done(struct drm_atomic_state *state)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc_commit *commit;
+	int i;
+	long ret;
+
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		commit = state->crtc_commits[i];
+		if (WARN_ON(!commit))
+			continue;
+
+		spin_lock(&crtc->commit_lock);
+		complete_all(&commit->cleanup_done);
+		WARN_ON(!try_wait_for_completion(&commit->hw_done));
+
+		/* commit_list borrows our reference, need to remove before we
+		 * clean up our drm_atomic_state. But only after it actually
+		 * completed, otherwise subsequent commits won't stall properly. */
+		if (try_wait_for_completion(&commit->flip_done)) {
+			list_del(&commit->commit_entry);
+			spin_unlock(&crtc->commit_lock);
+			continue;
+		}
+
+		spin_unlock(&crtc->commit_lock);
+
+		/* We must wait for the vblank event to signal our completion
+		 * before releasing our reference, since the vblank work does
+		 * not hold a reference of its own. */
+		ret = wait_for_completion_timeout(&commit->flip_done,
+						  msecs_to_jiffies(100));
+		if (ret == 0)
+			DRM_ERROR("[CRTC:%d] flip_done timed out\n",
+				  crtc->base.id);
+
+		spin_lock(&crtc->commit_lock);
+		list_del(&commit->commit_entry);
+		spin_unlock(&crtc->commit_lock);
+	}
+}
+EXPORT_SYMBOL(drm_atomic_helper_commit_cleanup_done);
 
 /**
  * DOC: implementing nonblocking commit
@@ -2272,6 +2598,26 @@ void drm_atomic_helper_commit_planes(struct drm_device *dev,
 
 		funcs->atomic_flush(crtc, old_crtc_state);
 	}
+
+	for_each_connector_in_state(old_state, connector, old_conn_state, i) {
+		const struct drm_connector_helper_funcs *funcs;
+
+		if (!connector->state->crtc)
+			continue;
+
+		if (!connector->state->crtc->state->active)
+			continue;
+
+		funcs = connector->helper_private;
+
+		if (!funcs || !funcs->atomic_flush)
+			continue;
+
+		DRM_DEBUG_ATOMIC("flushing [CONNECTOR:%d:%s]\n",
+				 connector->base.id, connector->name);
+
+		funcs->atomic_flush(connector, old_conn_state);
+	}
 }
 EXPORT_SYMBOL(drm_atomic_helper_commit_planes);
 
@@ -2621,8 +2967,7 @@ int drm_atomic_helper_update_plane(struct drm_plane *plane,
 	plane_state->src_w = src_w;
 	plane_state->src_h = src_h;
 
-	if (plane == crtc->cursor)
-		state->legacy_cursor_update = true;
+	state->legacy_cursor_update = true;
 
 	ret = drm_atomic_commit(state);
 fail:
@@ -2659,8 +3004,7 @@ int drm_atomic_helper_disable_plane(struct drm_plane *plane,
 		goto fail;
 	}
 
-	if (plane_state->crtc && (plane == plane->crtc->cursor))
-		plane_state->state->legacy_cursor_update = true;
+	plane_state->state->legacy_cursor_update = true;
 
 	ret = __drm_atomic_helper_disable_plane(plane, plane_state);
 	if (ret != 0)
@@ -2880,6 +3224,161 @@ commit:
 
 	return 0;
 }
+
+/**
+ * drm_atomic_helper_disable_all - disable all currently active outputs
+ * @dev: DRM device
+ * @ctx: lock acquisition context
+ *
+ * Loops through all connectors, finding those that aren't turned off and then
+ * turns them off by setting their DPMS mode to OFF and deactivating the CRTC
+ * that they are connected to.
+ *
+ * This is used for example in suspend/resume to disable all currently active
+ * functions when suspending.
+ *
+ * Note that if callers haven't already acquired all modeset locks this might
+ * return -EDEADLK, which must be handled by calling drm_modeset_backoff().
+ *
+ * Returns:
+ * 0 on success or a negative error code on failure.
+ *
+ * See also:
+ * drm_atomic_helper_suspend(), drm_atomic_helper_resume()
+ */
+int drm_atomic_helper_disable_all(struct drm_device *dev,
+				  struct drm_modeset_acquire_ctx *ctx)
+{
+	struct drm_atomic_state *state;
+	struct drm_connector *conn;
+	int err;
+
+	state = drm_atomic_state_alloc(dev);
+	if (!state)
+		return -ENOMEM;
+
+	state->acquire_ctx = ctx;
+
+	drm_for_each_connector(conn, dev) {
+		struct drm_crtc *crtc = conn->state->crtc;
+		struct drm_crtc_state *crtc_state;
+
+		if (!crtc || conn->dpms != DRM_MODE_DPMS_ON)
+			continue;
+
+		crtc_state = drm_atomic_get_crtc_state(state, crtc);
+		if (IS_ERR(crtc_state)) {
+			err = PTR_ERR(crtc_state);
+			goto free;
+		}
+
+		crtc_state->active = false;
+	}
+
+	err = drm_atomic_commit(state);
+
+free:
+	if (err < 0)
+		drm_atomic_state_free(state);
+
+	return err;
+}
+EXPORT_SYMBOL(drm_atomic_helper_disable_all);
+
+/**
+ * drm_atomic_helper_suspend - subsystem-level suspend helper
+ * @dev: DRM device
+ *
+ * Duplicates the current atomic state, disables all active outputs and then
+ * returns a pointer to the original atomic state to the caller. Drivers can
+ * pass this pointer to the drm_atomic_helper_resume() helper upon resume to
+ * restore the output configuration that was active at the time the system
+ * entered suspend.
+ *
+ * Note that it is potentially unsafe to use this. The atomic state object
+ * returned by this function is assumed to be persistent. Drivers must ensure
+ * that this holds true. Before calling this function, drivers must make sure
+ * to suspend fbdev emulation so that nothing can be using the device.
+ *
+ * Returns:
+ * A pointer to a copy of the state before suspend on success or an ERR_PTR()-
+ * encoded error code on failure. Drivers should store the returned atomic
+ * state object and pass it to the drm_atomic_helper_resume() helper upon
+ * resume.
+ *
+ * See also:
+ * drm_atomic_helper_duplicate_state(), drm_atomic_helper_disable_all(),
+ * drm_atomic_helper_resume()
+ */
+struct drm_atomic_state *drm_atomic_helper_suspend(struct drm_device *dev)
+{
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_atomic_state *state;
+	int err;
+
+	drm_modeset_acquire_init(&ctx, 0);
+
+retry:
+	err = drm_modeset_lock_all_ctx(dev, &ctx);
+	if (err < 0) {
+		state = ERR_PTR(err);
+		goto unlock;
+	}
+
+	state = drm_atomic_helper_duplicate_state(dev, &ctx);
+	if (IS_ERR(state))
+		goto unlock;
+
+	err = drm_atomic_helper_disable_all(dev, &ctx);
+	if (err < 0) {
+		drm_atomic_state_free(state);
+		state = ERR_PTR(err);
+		goto unlock;
+	}
+
+unlock:
+	if (PTR_ERR(state) == -EDEADLK) {
+		drm_modeset_backoff(&ctx);
+		goto retry;
+	}
+
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+	return state;
+}
+EXPORT_SYMBOL(drm_atomic_helper_suspend);
+
+/**
+ * drm_atomic_helper_resume - subsystem-level resume helper
+ * @dev: DRM device
+ * @state: atomic state to resume to
+ *
+ * Calls drm_mode_config_reset() to synchronize hardware and software states,
+ * grabs all modeset locks and commits the atomic state object. This can be
+ * used in conjunction with the drm_atomic_helper_suspend() helper to
+ * implement suspend/resume for drivers that support atomic mode-setting.
+ *
+ * Returns:
+ * 0 on success or a negative error code on failure.
+ *
+ * See also:
+ * drm_atomic_helper_suspend()
+ */
+int drm_atomic_helper_resume(struct drm_device *dev,
+			     struct drm_atomic_state *state)
+{
+	struct drm_mode_config *config = &dev->mode_config;
+	int err;
+
+	drm_mode_config_reset(dev);
+	drm_modeset_lock_all(dev);
+	state->acquire_ctx = config->acquire_ctx;
+	err = drm_atomic_commit(state);
+	drm_modeset_unlock_all(dev);
+
+	return err;
+}
+EXPORT_SYMBOL(drm_atomic_helper_resume);
 
 /**
  * drm_atomic_helper_disable_all - disable all currently active outputs
@@ -3203,6 +3702,23 @@ static int page_flip_common(struct drm_atomic_state *state,
 
 	return ret;
 }
+
+/**
+ * drm_atomic_helper_best_encoder - Helper for &drm_connector_helper_funcs
+ *                                  ->best_encoder callback
+ * @connector: Connector control structure
+ *
+ * This is a &drm_connector_helper_funcs ->best_encoder callback helper for
+ * connectors that support exactly 1 encoder, statically determined at driver
+ * init time.
+ */
+struct drm_encoder *
+drm_atomic_helper_best_encoder(struct drm_connector *connector)
+{
+	WARN_ON(connector->encoder_ids[1]);
+	return drm_encoder_find(connector->dev, connector->encoder_ids[0]);
+}
+EXPORT_SYMBOL(drm_atomic_helper_best_encoder);
 
 /**
  * drm_atomic_helper_page_flip - execute a legacy page flip

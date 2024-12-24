@@ -12,6 +12,10 @@ Rockchip platforms device tree bindings
     Required root node properties:
       - compatible = "rockchip,kylin-rk3036", "rockchip,rk3036";
 
+- Kylin RK3036 board:
+    Required root node properties:
+      - compatible = "rockchip,kylin-rk3036", "rockchip,rk3036";
+
 - MarsBoard RK3066 board:
     Required root node properties:
       - compatible = "haoyu,marsboard-rk3066", "rockchip,rk3066a";
@@ -81,6 +85,10 @@ Rockchip platforms device tree bindings
 		     "google,gru-rev5", "google,gru-rev4",
 		     "google,gru-rev3", "google,gru-rev2",
 		     "google,gru", "rockchip,rk3399";
+
+- GeekBuying GeekBox:
+    Required root node properties:
+      - compatible = "geekbuying,geekbox", "rockchip,rk3368";
 
 - Google Jaq (Haier Chromebook 11 and more):
     Required root node properties:
