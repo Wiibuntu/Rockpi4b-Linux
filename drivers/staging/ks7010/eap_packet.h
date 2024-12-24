@@ -1,13 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef EAP_PACKET_H
 #define EAP_PACKET_H
 
 #include <linux/compiler.h>
+#include <linux/bitops.h>
+#include <uapi/linux/if_ether.h>
 
-#define WBIT(n) (1 << (n))
-
-#ifndef ETH_ALEN
-#define ETH_ALEN 6
-#endif
+#define ETHER_HDR_SIZE 20
 
 struct ether_hdr {
 	unsigned char h_dest[ETH_ALEN];	/* destination eth addr */
@@ -16,10 +15,7 @@ struct ether_hdr {
 	unsigned char h_source_snap;
 	unsigned char h_command;
 	unsigned char h_vendor_id[3];
-	unsigned short h_proto;	/* packet type ID field */
-#define ETHER_PROTOCOL_TYPE_EAP		0x888e
-#define ETHER_PROTOCOL_TYPE_IP		0x0800
-#define ETHER_PROTOCOL_TYPE_ARP		0x0806
+	__be16 h_proto;	/* packet type ID field */
 	/* followed by length octets of data */
 } __packed;
 
@@ -58,12 +54,15 @@ struct ieee802_1x_eapol_key {
 	 * encrypt the Key field; 64-bit NTP timestamp MAY be used here
 	 */
 	unsigned char replay_counter[IEEE8021X_REPLAY_COUNTER_LEN];
-	unsigned char key_iv[IEEE8021X_KEY_IV_LEN];	/* cryptographically random number */
+	unsigned char key_iv[IEEE8021X_KEY_IV_LEN]; /* cryptographically random
+						     * number
+						     */
 	unsigned char key_index;	/*
 					 * key flag in the most significant bit:
 					 * 0 = broadcast (default key),
-					 * 1 = unicast (key mapping key); key index is in the
-					 * 7 least significant bits
+					 * 1 = unicast (key mapping key);
+					 * key index is in the 7 least
+					 * significant bits
 					 */
 	/*
 	 * HMAC-MD5 message integrity check computed with MS-MPPE-Send-Key as
@@ -86,7 +85,7 @@ struct ieee802_1x_eapol_key {
 
 struct wpa_eapol_key {
 	unsigned char type;
-	unsigned short key_info;
+	__be16 key_info;
 	unsigned short key_length;
 	unsigned char replay_counter[WPA_REPLAY_COUNTER_LEN];
 	unsigned char key_nonce[WPA_NONCE_LEN];
@@ -98,23 +97,23 @@ struct wpa_eapol_key {
 	/* followed by key_data_length bytes of key_data */
 } __packed;
 
-#define WPA_KEY_INFO_TYPE_MASK (WBIT(0) | WBIT(1) | WBIT(2))
-#define WPA_KEY_INFO_TYPE_HMAC_MD5_RC4 WBIT(0)
-#define WPA_KEY_INFO_TYPE_HMAC_SHA1_AES WBIT(1)
-#define WPA_KEY_INFO_KEY_TYPE WBIT(3)	/* 1 = Pairwise, 0 = Group key */
+#define WPA_KEY_INFO_TYPE_MASK GENMASK(2, 0)
+#define WPA_KEY_INFO_TYPE_HMAC_MD5_RC4 BIT(0)
+#define WPA_KEY_INFO_TYPE_HMAC_SHA1_AES BIT(1)
+#define WPA_KEY_INFO_KEY_TYPE BIT(3)	/* 1 = Pairwise, 0 = Group key */
 /* bit4..5 is used in WPA, but is reserved in IEEE 802.11i/RSN */
-#define WPA_KEY_INFO_KEY_INDEX_MASK (WBIT(4) | WBIT(5))
+#define WPA_KEY_INFO_KEY_INDEX_MASK GENMASK(5, 4)
 #define WPA_KEY_INFO_KEY_INDEX_SHIFT 4
-#define WPA_KEY_INFO_INSTALL WBIT(6)	/* pairwise */
-#define WPA_KEY_INFO_TXRX WBIT(6)	/* group */
-#define WPA_KEY_INFO_ACK WBIT(7)
-#define WPA_KEY_INFO_MIC WBIT(8)
-#define WPA_KEY_INFO_SECURE WBIT(9)
-#define WPA_KEY_INFO_ERROR WBIT(10)
-#define WPA_KEY_INFO_REQUEST WBIT(11)
-#define WPA_KEY_INFO_ENCR_KEY_DATA WBIT(12)	/* IEEE 802.11i/RSN only */
+#define WPA_KEY_INFO_INSTALL BIT(6)	/* pairwise */
+#define WPA_KEY_INFO_TXRX BIT(6)	/* group */
+#define WPA_KEY_INFO_ACK BIT(7)
+#define WPA_KEY_INFO_MIC BIT(8)
+#define WPA_KEY_INFO_SECURE BIT(9)
+#define WPA_KEY_INFO_ERROR BIT(10)
+#define WPA_KEY_INFO_REQUEST BIT(11)
+#define WPA_KEY_INFO_ENCR_KEY_DATA BIT(12)	/* IEEE 802.11i/RSN only */
 
-#define WPA_CAPABILITY_PREAUTH WBIT(0)
+#define WPA_CAPABILITY_PREAUTH BIT(0)
 
 #define GENERIC_INFO_ELEM 0xdd
 #define RSN_INFO_ELEM 0x30

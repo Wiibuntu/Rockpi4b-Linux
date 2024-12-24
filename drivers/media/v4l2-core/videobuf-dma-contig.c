@@ -7,7 +7,7 @@
  * Copyright (c) 2008 Magnus Damm
  *
  * Based on videobuf-vmalloc.c,
- * (c) 2007 Mauro Carvalho Chehab, <mchehab@infradead.org>
+ * (c) 2007 Mauro Carvalho Chehab, <mchehab@kernel.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -265,8 +265,6 @@ static int __videobuf_iolock(struct videobuf_queue *q,
 			return -ENOMEM;
 		break;
 	case V4L2_MEMORY_OVERLAY:
-		/* ddl@rock-chips.com : nzy modify V4L2_MEMORY_OVERLAY */
-		break;
 	default:
 		dev_dbg(q->dev, "%s memory method OVERLAY/unknown\n", __func__);
 		return -EINVAL;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -32,7 +33,7 @@
 
 #ifndef _LUSTRE_LMV_H
 #define _LUSTRE_LMV_H
-#include "lustre/lustre_idl.h"
+#include <uapi/linux/lustre/lustre_idl.h>
 
 struct lmv_oinfo {
 	struct lu_fid	lmo_fid;
@@ -62,7 +63,7 @@ lsm_md_eq(const struct lmv_stripe_md *lsm1, const struct lmv_stripe_md *lsm2)
 	    lsm1->lsm_md_master_mdt_index != lsm2->lsm_md_master_mdt_index ||
 	    lsm1->lsm_md_hash_type != lsm2->lsm_md_hash_type ||
 	    lsm1->lsm_md_layout_version != lsm2->lsm_md_layout_version ||
-	    !strcmp(lsm1->lsm_md_pool_name, lsm2->lsm_md_pool_name))
+	    strcmp(lsm1->lsm_md_pool_name, lsm2->lsm_md_pool_name) != 0)
 		return false;
 
 	for (idx = 0; idx < lsm1->lsm_md_stripe_count; idx++) {
@@ -76,18 +77,7 @@ lsm_md_eq(const struct lmv_stripe_md *lsm1, const struct lmv_stripe_md *lsm2)
 
 union lmv_mds_md;
 
-int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
-		  const union lmv_mds_md *lmm, int stripe_count);
-
-static inline int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripe_count)
-{
-	return lmv_unpack_md(NULL, lsmp, NULL, stripe_count);
-}
-
-static inline void lmv_free_memmd(struct lmv_stripe_md *lsm)
-{
-	lmv_unpack_md(NULL, &lsm, NULL, 0);
-}
+void lmv_free_memmd(struct lmv_stripe_md *lsm);
 
 static inline void lmv1_le_to_cpu(struct lmv_mds_md_v1 *lmv_dst,
 				  const struct lmv_mds_md_v1 *lmv_src)

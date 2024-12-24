@@ -20,6 +20,14 @@
 #include "mc.h"
 
 #define MC_INTSTATUS 0x000
+#define  MC_INT_DECERR_MTS (1 << 16)
+#define  MC_INT_SECERR_SEC (1 << 13)
+#define  MC_INT_DECERR_VPR (1 << 12)
+#define  MC_INT_INVALID_APB_ASID_UPDATE (1 << 11)
+#define  MC_INT_INVALID_SMMU_PAGE (1 << 10)
+#define  MC_INT_ARBITRATION_EMEM (1 << 9)
+#define  MC_INT_SECURITY_VIOLATION (1 << 8)
+#define  MC_INT_DECERR_EMEM (1 << 6)
 
 #define MC_INTMASK 0x004
 
@@ -178,8 +186,10 @@ static int load_timings(struct tegra_mc *mc, struct device_node *node)
 		timing = &mc->timings[i++];
 
 		err = load_one_timing(mc, timing, child);
-		if (err)
+		if (err) {
+			of_node_put(child);
 			return err;
+		}
 	}
 
 	return 0;
@@ -198,15 +208,13 @@ static int tegra_mc_setup_timings(struct tegra_mc *mc)
 	for_each_child_of_node(mc->dev->of_node, node) {
 		err = of_property_read_u32(node, "nvidia,ram-code",
 					   &node_ram_code);
-		if (err || (node_ram_code != ram_code)) {
-			of_node_put(node);
+		if (err || (node_ram_code != ram_code))
 			continue;
-		}
 
 		err = load_timings(mc, node);
+		of_node_put(node);
 		if (err)
 			return err;
-		of_node_put(node);
 		break;
 	}
 
@@ -240,13 +248,12 @@ static const char *const error_names[8] = {
 static irqreturn_t tegra_mc_irq(int irq, void *data)
 {
 	struct tegra_mc *mc = data;
-	unsigned long status;
+	unsigned long status, mask;
 	unsigned int bit;
 
 	/* mask all interrupts to avoid flooding */
-	status = mc_readl(mc, MC_INTSTATUS) & mc->soc->intmask;
-	if (!status)
-		return IRQ_NONE;
+	status = mc_readl(mc, MC_INTSTATUS);
+	mask = mc_readl(mc, MC_INTMASK);
 
 	for_each_set_bit(bit, &status, 32) {
 		const char *error = status_names[bit] ?: "unknown";
@@ -339,6 +346,7 @@ static int tegra_mc_probe(struct platform_device *pdev)
 	const struct of_device_id *match;
 	struct resource *res;
 	struct tegra_mc *mc;
+	u32 value;
 	int err;
 
 	match = of_match_node(tegra_mc_of_match, pdev->dev.of_node);
@@ -406,7 +414,11 @@ static int tegra_mc_probe(struct platform_device *pdev)
 
 	WARN(!mc->soc->client_id_mask, "Missing client ID mask for this SoC\n");
 
-	mc_writel(mc, mc->soc->intmask, MC_INTMASK);
+	value = MC_INT_DECERR_MTS | MC_INT_SECERR_SEC | MC_INT_DECERR_VPR |
+		MC_INT_INVALID_APB_ASID_UPDATE | MC_INT_INVALID_SMMU_PAGE |
+		MC_INT_SECURITY_VIOLATION | MC_INT_DECERR_EMEM;
+
+	mc_writel(mc, value, MC_INTMASK);
 
 	return 0;
 }

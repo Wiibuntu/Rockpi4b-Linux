@@ -41,7 +41,7 @@
 #include <linux/capability.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/timer.h>
 #include <linux/string.h>
 #include <linux/net.h>
@@ -51,7 +51,7 @@
 #include <linux/slab.h>
 #include <net/sock.h>
 #include <net/tcp_states.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/fcntl.h>
 #include <linux/termios.h>	/* For TIOCINQ/OUTQ */
 #include <linux/notifier.h>
@@ -74,7 +74,7 @@ DEFINE_RWLOCK(x25_list_lock);
 
 static const struct proto_ops x25_proto_ops;
 
-static struct x25_address null_x25_address = {"               "};
+static const struct x25_address null_x25_address = {"               "};
 
 #ifdef CONFIG_COMPAT
 struct compat_x25_subscrip_struct {
@@ -352,15 +352,17 @@ static unsigned int x25_new_lci(struct x25_neigh *nb)
 	unsigned int lci = 1;
 	struct sock *sk;
 
-	while ((sk = x25_find_socket(lci, nb)) != NULL) {
+	read_lock_bh(&x25_list_lock);
+
+	while ((sk = __x25_find_socket(lci, nb)) != NULL) {
 		sock_put(sk);
 		if (++lci == 4096) {
 			lci = 0;
 			break;
 		}
-		cond_resched();
 	}
 
+	read_unlock_bh(&x25_list_lock);
 	return lci;
 }
 
@@ -372,9 +374,11 @@ static void __x25_destroy_socket(struct sock *);
 /*
  *	handler for deferred kills.
  */
-static void x25_destroy_timer(unsigned long data)
+static void x25_destroy_timer(struct timer_list *t)
 {
-	x25_destroy_socket_from_timer((struct sock *)data);
+	struct sock *sk = from_timer(sk, t, sk_timer);
+
+	x25_destroy_socket_from_timer(sk);
 }
 
 /*
@@ -412,7 +416,6 @@ static void __x25_destroy_socket(struct sock *sk)
 		/* Defer: outstanding buffers */
 		sk->sk_timer.expires  = jiffies + 10 * HZ;
 		sk->sk_timer.function = x25_destroy_timer;
-		sk->sk_timer.data = (unsigned long)sk;
 		add_timer(&sk->sk_timer);
 	} else {
 		/* drop last reference so sock_put will free */
@@ -678,7 +681,8 @@ static int x25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	struct sockaddr_x25 *addr = (struct sockaddr_x25 *)uaddr;
 	int len, i, rc = 0;
 
-	if (addr_len != sizeof(struct sockaddr_x25) ||
+	if (!sock_flag(sk, SOCK_ZAPPED) ||
+	    addr_len != sizeof(struct sockaddr_x25) ||
 	    addr->sx25_family != AF_X25) {
 		rc = -EINVAL;
 		goto out;
@@ -693,13 +697,9 @@ static int x25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	}
 
 	lock_sock(sk);
-	if (sock_flag(sk, SOCK_ZAPPED)) {
-		x25_sk(sk)->source_addr = addr->sx25_addr;
-		x25_insert_socket(sk);
-		sock_reset_flag(sk, SOCK_ZAPPED);
-	} else {
-		rc = -EINVAL;
-	}
+	x25_sk(sk)->source_addr = addr->sx25_addr;
+	x25_insert_socket(sk);
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	release_sock(sk);
 	SOCK_DEBUG(sk, "x25_bind: socket is bound\n");
 out:
@@ -815,13 +815,8 @@ static int x25_connect(struct socket *sock, struct sockaddr *uaddr,
 	sock->state = SS_CONNECTED;
 	rc = 0;
 out_put_neigh:
-	if (rc) {
-		read_lock_bh(&x25_list_lock);
+	if (rc)
 		x25_neigh_put(x25->neighbour);
-		x25->neighbour = NULL;
-		read_unlock_bh(&x25_list_lock);
-		x25->state = X25_STATE_0;
-	}
 out_put_route:
 	x25_route_put(rt);
 out:
@@ -858,7 +853,8 @@ static int x25_wait_for_data(struct sock *sk, long timeout)
 	return rc;
 }
 
-static int x25_accept(struct socket *sock, struct socket *newsock, int flags)
+static int x25_accept(struct socket *sock, struct socket *newsock, int flags,
+		      bool kern)
 {
 	struct sock *sk = sock->sk;
 	struct sock *newsk;
@@ -900,7 +896,7 @@ out:
 }
 
 static int x25_getname(struct socket *sock, struct sockaddr *uaddr,
-		       int *uaddr_len, int peer)
+		       int peer)
 {
 	struct sockaddr_x25 *sx25 = (struct sockaddr_x25 *)uaddr;
 	struct sock *sk = sock->sk;
@@ -917,7 +913,7 @@ static int x25_getname(struct socket *sock, struct sockaddr *uaddr,
 		sx25->sx25_addr = x25->source_addr;
 
 	sx25->sx25_family = AF_X25;
-	*uaddr_len = sizeof(*sx25);
+	rc = sizeof(*sx25);
 
 out:
 	return rc;
@@ -1506,11 +1502,7 @@ out_fac_release:
 			goto out_dtefac_release;
 		if (dtefacs.calling_len > X25_MAX_AE_LEN)
 			goto out_dtefac_release;
-		if (dtefacs.calling_ae == NULL)
-			goto out_dtefac_release;
 		if (dtefacs.called_len > X25_MAX_AE_LEN)
-			goto out_dtefac_release;
-		if (dtefacs.called_ae == NULL)
 			goto out_dtefac_release;
 		x25->dte_facilities = dtefacs;
 		rc = 0;

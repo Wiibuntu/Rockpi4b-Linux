@@ -1,21 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * cec-notifier.c - notify CEC drivers of physical address changes
  *
  * Copyright 2016 Russell King <rmk+kernel@arm.linux.org.uk>
  * Copyright 2016-2017 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
- *
- * This program is free software; you may redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/export.h>
@@ -112,15 +100,6 @@ void cec_notifier_set_phys_addr_from_edid(struct cec_notifier *n,
 	cec_notifier_set_phys_addr(n, pa);
 }
 EXPORT_SYMBOL_GPL(cec_notifier_set_phys_addr_from_edid);
-
-void cec_notifier_repo_cec_hpd(struct cec_notifier *n,
-					  bool hpd_state, ktime_t ts)
-{
-	if (!n)
-		return;
-	cec_queue_pin_hpd_event(n->cec_adap, hpd_state, ts);
-}
-EXPORT_SYMBOL_GPL(cec_notifier_repo_cec_hpd);
 
 void cec_notifier_register(struct cec_notifier *n,
 			   struct cec_adapter *adap,

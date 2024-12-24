@@ -165,14 +165,14 @@ of_mipi_dsi_device_add(struct mipi_dsi_host *host, struct device_node *node)
 	u32 reg;
 
 	if (of_modalias_node(node, info.type, sizeof(info.type)) < 0) {
-		dev_err(dev, "modalias failure on %s\n", node->full_name);
+		dev_err(dev, "modalias failure on %pOF\n", node);
 		return ERR_PTR(-EINVAL);
 	}
 
 	ret = of_property_read_u32(node, "reg", &reg);
 	if (ret) {
-		dev_err(dev, "device node %s has no valid reg property: %d\n",
-			node->full_name, ret);
+		dev_err(dev, "device node %pOF has no valid reg property: %d\n",
+			node, ret);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -392,7 +392,6 @@ bool mipi_dsi_packet_format_is_short(u8 type)
 	case MIPI_DSI_DCS_SHORT_WRITE:
 	case MIPI_DSI_DCS_SHORT_WRITE_PARAM:
 	case MIPI_DSI_DCS_READ:
-	case MIPI_DSI_DCS_COMPRESSION_MODE:
 	case MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE:
 		return true;
 	}
@@ -411,7 +410,6 @@ EXPORT_SYMBOL(mipi_dsi_packet_format_is_short);
 bool mipi_dsi_packet_format_is_long(u8 type)
 {
 	switch (type) {
-	case MIPI_DSI_PPS_LONG_WRITE:
 	case MIPI_DSI_NULL_PACKET:
 	case MIPI_DSI_BLANKING_PACKET:
 	case MIPI_DSI_GENERIC_LONG_WRITE:

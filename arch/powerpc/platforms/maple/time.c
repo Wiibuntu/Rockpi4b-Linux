@@ -77,7 +77,7 @@ void maple_get_rtc_time(struct rtc_time *tm)
 	if ((tm->tm_year + 1900) < 1970)
 		tm->tm_year += 100;
 
-	GregorianDay(tm);
+	tm->tm_wday = -1;
 }
 
 int maple_set_rtc_time(struct rtc_time *tm)
@@ -134,7 +134,7 @@ int maple_set_rtc_time(struct rtc_time *tm)
 
 static struct resource rtc_iores = {
 	.name = "rtc",
-	.flags = IORESOURCE_BUSY,
+	.flags = IORESOURCE_IO | IORESOURCE_BUSY,
 };
 
 unsigned long __init maple_get_boot_time(void)

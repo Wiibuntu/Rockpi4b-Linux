@@ -82,8 +82,8 @@ include $(ARCH_DIR)/Makefile-os-$(OS)
 
 KBUILD_CPPFLAGS += -I$(srctree)/$(HOST_DIR)/include \
 		   -I$(srctree)/$(HOST_DIR)/include/uapi \
-		   -I$(HOST_DIR)/include/generated \
-		   -I$(HOST_DIR)/include/generated/uapi
+		   -I$(objtree)/$(HOST_DIR)/include/generated \
+		   -I$(objtree)/$(HOST_DIR)/include/generated/uapi
 
 # -Derrno=kernel_errno - This turns all kernel references to errno into
 # kernel_errno to separate them from the libc errno.  This allows -fno-common
@@ -116,7 +116,14 @@ endef
 KBUILD_KCONFIG := $(HOST_DIR)/um/Kconfig
 
 archheaders:
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic \
+	            kbuild-file=$(HOST_DIR)/include/asm/Kbuild \
+		    obj=$(HOST_DIR)/include/generated/asm
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic \
+	            kbuild-file=$(HOST_DIR)/include/uapi/asm/Kbuild \
+		    obj=$(HOST_DIR)/include/generated/uapi/asm
 	$(Q)$(MAKE) KBUILD_SRC= ARCH=$(HEADER_ARCH) archheaders
+
 
 archprepare: include/generated/user_constants.h
 

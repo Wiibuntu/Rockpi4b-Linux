@@ -81,7 +81,7 @@ static void inet_frags_free_cb(void *ptr, void *arg)
 	spin_lock_bh(&fq->lock);
 	if (!(fq->flags & INET_FRAG_COMPLETE)) {
 		fq->flags |= INET_FRAG_COMPLETE;
-		atomic_dec(&fq->refcnt);
+		refcount_dec(&fq->refcnt);
 	}
 	spin_unlock_bh(&fq->lock);
 
@@ -90,7 +90,7 @@ static void inet_frags_free_cb(void *ptr, void *arg)
 
 void inet_frags_exit_net(struct netns_frags *nf)
 {
-	nf->high_thresh = 0; /* prevent creation of new frags */
+	nf->low_thresh = 0; /* prevent creation of new frags */
 
 	rhashtable_free_and_destroy(&nf->rhashtable, inet_frags_free_cb, NULL);
 }
@@ -99,25 +99,17 @@ EXPORT_SYMBOL(inet_frags_exit_net);
 void inet_frag_kill(struct inet_frag_queue *fq)
 {
 	if (del_timer(&fq->timer))
-		atomic_dec(&fq->refcnt);
+		refcount_dec(&fq->refcnt);
 
 	if (!(fq->flags & INET_FRAG_COMPLETE)) {
 		struct netns_frags *nf = fq->net;
 
 		fq->flags |= INET_FRAG_COMPLETE;
 		rhashtable_remove_fast(&nf->rhashtable, &fq->node, nf->f->rhash_params);
-		atomic_dec(&fq->refcnt);
+		refcount_dec(&fq->refcnt);
 	}
 }
 EXPORT_SYMBOL(inet_frag_kill);
-
-static inline void frag_kfree_skb(struct netns_frags *nf, struct inet_frags *f,
-				  struct sk_buff *skb)
-{
-	if (f->skb_free)
-		f->skb_free(skb);
-	kfree_skb(skb);
-}
 
 static void inet_frag_destroy_rcu(struct rcu_head *head)
 {
@@ -144,16 +136,12 @@ void inet_frag_destroy(struct inet_frag_queue *q)
 	fp = q->fragments;
 	nf = q->net;
 	f = nf->f;
-	if (fp) {
-		do {
-			struct sk_buff *xp = fp->next;
+	while (fp) {
+		struct sk_buff *xp = fp->next;
 
-			sum_truesize += fp->truesize;
-			frag_kfree_skb(nf, f, fp);
-			fp = xp;
-		} while (fp);
-	} else {
-		sum_truesize = inet_frag_rbtree_purge(&q->rb_fragments);
+		sum_truesize += fp->truesize;
+		kfree_skb(fp);
+		fp = xp;
 	}
 	sum = sum_truesize + f->qsize;
 
@@ -180,30 +168,29 @@ static struct inet_frag_queue *inet_frag_alloc(struct netns_frags *nf,
 	f->constructor(q, arg);
 	add_frag_mem_limit(nf, f->qsize);
 
-	setup_timer(&q->timer, f->frag_expire, (unsigned long)q);
+	timer_setup(&q->timer, f->frag_expire, 0);
 	spin_lock_init(&q->lock);
-	atomic_set(&q->refcnt, 3);
+	refcount_set(&q->refcnt, 3);
 
 	return q;
 }
 
 static struct inet_frag_queue *inet_frag_create(struct netns_frags *nf,
-						void *arg,
-						struct inet_frag_queue **prev)
+						void *arg)
 {
 	struct inet_frags *f = nf->f;
 	struct inet_frag_queue *q;
+	int err;
 
 	q = inet_frag_alloc(nf, f, arg);
-	if (!q) {
-		*prev = ERR_PTR(-ENOMEM);
+	if (!q)
 		return NULL;
-	}
+
 	mod_timer(&q->timer, jiffies + nf->timeout);
 
-	*prev = rhashtable_lookup_get_insert_key(&nf->rhashtable, &q->key,
-						 &q->node, f->rhash_params);
-	if (*prev) {
+	err = rhashtable_insert_fast(&nf->rhashtable, &q->node,
+				     f->rhash_params);
+	if (err < 0) {
 		q->flags |= INET_FRAG_COMPLETE;
 		inet_frag_kill(q);
 		inet_frag_destroy(q);
@@ -211,23 +198,23 @@ static struct inet_frag_queue *inet_frag_create(struct netns_frags *nf,
 	}
 	return q;
 }
-EXPORT_SYMBOL(inet_frag_create);
 
 /* TODO : call from rcu_read_lock() and no longer use refcount_inc_not_zero() */
 struct inet_frag_queue *inet_frag_find(struct netns_frags *nf, void *key)
 {
-	struct inet_frag_queue *fq = NULL, *prev;
+	struct inet_frag_queue *fq;
 
 	rcu_read_lock();
-	prev = rhashtable_lookup(&nf->rhashtable, key, nf->f->rhash_params);
-	if (!prev)
-		fq = inet_frag_create(nf, key, &prev);
-	if (prev && !IS_ERR(prev)) {
-		fq = prev;
-		if (!atomic_inc_not_zero(&fq->refcnt))
+
+	fq = rhashtable_lookup(&nf->rhashtable, key, nf->f->rhash_params);
+	if (fq) {
+		if (!refcount_inc_not_zero(&fq->refcnt))
 			fq = NULL;
+		rcu_read_unlock();
+		return fq;
 	}
 	rcu_read_unlock();
-	return fq;
+
+	return inet_frag_create(nf, key);
 }
 EXPORT_SYMBOL(inet_frag_find);

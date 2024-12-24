@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/ext4/balloc.c
  *
@@ -183,6 +184,7 @@ static int ext4_init_block_bitmap(struct super_block *sb,
 	unsigned int bit, bit_max;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	ext4_fsblk_t start, tmp;
+	int flex_bg = 0;
 	struct ext4_group_info *grp;
 
 	J_ASSERT_BH(bh, buffer_locked(bh));
@@ -215,19 +217,22 @@ static int ext4_init_block_bitmap(struct super_block *sb,
 
 	start = ext4_group_first_block_no(sb, block_group);
 
+	if (ext4_has_feature_flex_bg(sb))
+		flex_bg = 1;
+
 	/* Set bits for block and inode bitmaps, and inode table */
 	tmp = ext4_block_bitmap(sb, gdp);
-	if (ext4_block_in_group(sb, tmp, block_group))
+	if (!flex_bg || ext4_block_in_group(sb, tmp, block_group))
 		ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
 
 	tmp = ext4_inode_bitmap(sb, gdp);
-	if (ext4_block_in_group(sb, tmp, block_group))
+	if (!flex_bg || ext4_block_in_group(sb, tmp, block_group))
 		ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
 
 	tmp = ext4_inode_table(sb, gdp);
 	for (; tmp < ext4_inode_table(sb, gdp) +
 		     sbi->s_itb_per_group; tmp++) {
-		if (ext4_block_in_group(sb, tmp, block_group))
+		if (!flex_bg || ext4_block_in_group(sb, tmp, block_group))
 			ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
 	}
 
@@ -354,10 +359,10 @@ static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 	    EXT4_B2C(sbi, offset + sbi->s_itb_per_group) >= max_bit)
 		return blk;
 	next_zero_bit = ext4_find_next_zero_bit(bh->b_data,
-			EXT4_B2C(sbi, offset + EXT4_SB(sb)->s_itb_per_group),
+			EXT4_B2C(sbi, offset + sbi->s_itb_per_group),
 			EXT4_B2C(sbi, offset));
 	if (next_zero_bit <
-	    EXT4_B2C(sbi, offset + EXT4_SB(sb)->s_itb_per_group))
+	    EXT4_B2C(sbi, offset + sbi->s_itb_per_group))
 		/* bad bitmap for inode tables */
 		return blk;
 	return 0;
@@ -378,8 +383,6 @@ static int ext4_validate_block_bitmap(struct super_block *sb,
 		return -EFSCORRUPTED;
 
 	ext4_lock_group(sb, block_group);
-	if (buffer_verified(bh))
-		goto verified;
 	if (unlikely(!ext4_block_bitmap_csum_verify(sb, block_group,
 			desc, bh))) {
 		ext4_unlock_group(sb, block_group);
@@ -402,7 +405,6 @@ static int ext4_validate_block_bitmap(struct super_block *sb,
 		return -EFSCORRUPTED;
 	}
 	set_buffer_verified(bh);
-verified:
 	ext4_unlock_group(sb, block_group);
 	return 0;
 }
@@ -453,16 +455,7 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group)
 		goto verify;
 	}
 	ext4_lock_group(sb, block_group);
-	if (ext4_has_group_desc_csum(sb) &&
-	    (desc->bg_flags & cpu_to_le16(EXT4_BG_BLOCK_UNINIT))) {
-		if (block_group == 0) {
-			ext4_unlock_group(sb, block_group);
-			unlock_buffer(bh);
-			ext4_error(sb, "Block bitmap for bg 0 marked "
-				   "uninitialized");
-			err = -EFSCORRUPTED;
-			goto out;
-		}
+	if (desc->bg_flags & cpu_to_le16(EXT4_BG_BLOCK_UNINIT)) {
 		err = ext4_init_block_bitmap(sb, bh, block_group, desc);
 		set_bitmap_uptodate(bh);
 		set_buffer_uptodate(bh);
@@ -493,7 +486,7 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group)
 	trace_ext4_read_block_bitmap_load(sb, block_group);
 	bh->b_end_io = ext4_end_bitmap_read;
 	get_bh(bh);
-	submit_bh(READ | REQ_META | REQ_PRIO, bh);
+	submit_bh(REQ_OP_READ, REQ_META | REQ_PRIO, bh);
 	return bh;
 verify:
 	err = ext4_validate_block_bitmap(sb, desc, block_group, bh);
@@ -620,20 +613,22 @@ int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
  * ext4_should_retry_alloc() is called when ENOSPC is returned, and if
  * it is profitable to retry the operation, this function will wait
  * for the current or committing transaction to complete, and then
- * return TRUE.
- *
- * if the total number of retries exceed three times, return FALSE.
+ * return TRUE.  We will only retry once.
  */
 int ext4_should_retry_alloc(struct super_block *sb, int *retries)
 {
 	if (!ext4_has_free_clusters(EXT4_SB(sb), 1, 0) ||
-	    (*retries)++ > 3 ||
+	    (*retries)++ > 1 ||
 	    !EXT4_SB(sb)->s_journal)
 		return 0;
 
-	jbd_debug(1, "%s: retrying operation after ENOSPC\n", sb->s_id);
+	smp_mb();
+	if (EXT4_SB(sb)->s_mb_free_pending == 0)
+		return 0;
 
-	return jbd2_journal_force_commit_nested(EXT4_SB(sb)->s_journal);
+	jbd_debug(1, "%s: retrying operation after ENOSPC\n", sb->s_id);
+	jbd2_journal_force_commit_nested(EXT4_SB(sb)->s_journal);
+	return 1;
 }
 
 /*

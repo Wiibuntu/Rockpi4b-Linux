@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * omap_udc.c -- for OMAP full speed udc; most chips support OTG.
  *
@@ -5,11 +6,6 @@
  * Copyright (C) 2004-2005 David Brownell
  *
  * OMAP2 & DMA support by Kyungmin Park <kyungmin.park@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #undef	DEBUG
@@ -1112,7 +1108,7 @@ done:
 	return status;
 }
 
-static struct usb_ep_ops omap_ep_ops = {
+static const struct usb_ep_ops omap_ep_ops = {
 	.enable		= omap_ep_enable,
 	.disable	= omap_ep_disable,
 
@@ -1858,9 +1854,9 @@ static irqreturn_t omap_udc_irq(int irq, void *_udc)
 #define PIO_OUT_TIMEOUT	(jiffies + HZ/3)
 #define HALF_FULL(f)	(!((f)&(UDC_NON_ISO_FIFO_FULL|UDC_NON_ISO_FIFO_EMPTY)))
 
-static void pio_out_timer(unsigned long _ep)
+static void pio_out_timer(struct timer_list *t)
 {
-	struct omap_ep	*ep = (void *) _ep;
+	struct omap_ep	*ep = from_timer(ep, t, timer);
 	unsigned long	flags;
 	u16		stat_flg;
 
@@ -2037,7 +2033,6 @@ static inline int machine_without_vbus_sense(void)
 {
 	return machine_is_omap_innovator()
 		|| machine_is_omap_osk()
-		|| machine_is_omap_palmte()
 		|| machine_is_sx1()
 		/* No known omap7xx boards with vbus sense */
 		|| cpu_is_omap7xx();
@@ -2046,7 +2041,7 @@ static inline int machine_without_vbus_sense(void)
 static int omap_udc_start(struct usb_gadget *g,
 		struct usb_gadget_driver *driver)
 {
-	int		status;
+	int		status = -ENODEV;
 	struct omap_ep	*ep;
 	unsigned long	flags;
 
@@ -2084,7 +2079,6 @@ static int omap_udc_start(struct usb_gadget *g,
 			goto done;
 		}
 	} else {
-		status = 0;
 		if (can_pullup(udc))
 			pullup_enable(udc);
 		else
@@ -2548,9 +2542,7 @@ omap_ep_setup(char *name, u8 addr, u8 type,
 		}
 		if (dbuf && addr)
 			epn_rxtx |= UDC_EPN_RX_DB;
-		init_timer(&ep->timer);
-		ep->timer.function = pio_out_timer;
-		ep->timer.data = (unsigned long) ep;
+		timer_setup(&ep->timer, pio_out_timer, 0);
 	}
 	if (addr)
 		epn_rxtx |= UDC_EPN_RX_VALID;
@@ -2614,22 +2606,9 @@ omap_ep_setup(char *name, u8 addr, u8 type,
 
 static void omap_udc_release(struct device *dev)
 {
-	pullup_disable(udc);
-	if (!IS_ERR_OR_NULL(udc->transceiver)) {
-		usb_put_phy(udc->transceiver);
-		udc->transceiver = NULL;
-	}
-	omap_writew(0, UDC_SYSCON1);
-	remove_proc_file();
-	if (udc->dc_clk) {
-		if (udc->clk_requested)
-			omap_udc_enable_clock(0);
-		clk_put(udc->hhc_clk);
-		clk_put(udc->dc_clk);
-	}
-	if (udc->done)
-		complete(udc->done);
+	complete(udc->done);
 	kfree(udc);
+	udc = NULL;
 }
 
 static int
@@ -2890,7 +2869,7 @@ bad_on_1710:
 	xceiv = NULL;
 	/* "udc" is now valid */
 	pullup_disable(udc);
-#if	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
+#if	IS_ENABLED(CONFIG_USB_OHCI_HCD)
 	udc->gadget.is_otg = (config->otg != 0);
 #endif
 
@@ -2901,8 +2880,8 @@ bad_on_1710:
 		udc->clr_halt = UDC_RESET_EP;
 
 	/* USB general purpose IRQ:  ep0, state changes, dma, etc */
-	status = devm_request_irq(&pdev->dev, pdev->resource[1].start,
-				  omap_udc_irq, 0, driver_name, udc);
+	status = request_irq(pdev->resource[1].start, omap_udc_irq,
+			0, driver_name, udc);
 	if (status != 0) {
 		ERR("can't get irq %d, err %d\n",
 			(int) pdev->resource[1].start, status);
@@ -2910,20 +2889,20 @@ bad_on_1710:
 	}
 
 	/* USB "non-iso" IRQ (PIO for all but ep0) */
-	status = devm_request_irq(&pdev->dev, pdev->resource[2].start,
-				  omap_udc_pio_irq, 0, "omap_udc pio", udc);
+	status = request_irq(pdev->resource[2].start, omap_udc_pio_irq,
+			0, "omap_udc pio", udc);
 	if (status != 0) {
 		ERR("can't get irq %d, err %d\n",
 			(int) pdev->resource[2].start, status);
-		goto cleanup1;
+		goto cleanup2;
 	}
 #ifdef	USE_ISO
-	status = devm_request_irq(&pdev->dev, pdev->resource[3].start,
-				  omap_udc_iso_irq, 0, "omap_udc iso", udc);
+	status = request_irq(pdev->resource[3].start, omap_udc_iso_irq,
+			0, "omap_udc iso", udc);
 	if (status != 0) {
 		ERR("can't get irq %d, err %d\n",
 			(int) pdev->resource[3].start, status);
-		goto cleanup1;
+		goto cleanup3;
 	}
 #endif
 	if (cpu_is_omap16xx() || cpu_is_omap7xx()) {
@@ -2934,8 +2913,23 @@ bad_on_1710:
 	}
 
 	create_proc_file();
-	return usb_add_gadget_udc_release(&pdev->dev, &udc->gadget,
-					  omap_udc_release);
+	status = usb_add_gadget_udc_release(&pdev->dev, &udc->gadget,
+			omap_udc_release);
+	if (status)
+		goto cleanup4;
+
+	return 0;
+
+cleanup4:
+	remove_proc_file();
+
+#ifdef	USE_ISO
+cleanup3:
+	free_irq(pdev->resource[2].start, udc);
+#endif
+
+cleanup2:
+	free_irq(pdev->resource[1].start, udc);
 
 cleanup1:
 	kfree(udc);
@@ -2962,14 +2956,41 @@ static int omap_udc_remove(struct platform_device *pdev)
 {
 	DECLARE_COMPLETION_ONSTACK(done);
 
-	udc->done = &done;
+	if (!udc)
+		return -ENODEV;
 
 	usb_del_gadget_udc(&udc->gadget);
+	if (udc->driver)
+		return -EBUSY;
 
-	wait_for_completion(&done);
+	udc->done = &done;
+
+	pullup_disable(udc);
+	if (!IS_ERR_OR_NULL(udc->transceiver)) {
+		usb_put_phy(udc->transceiver);
+		udc->transceiver = NULL;
+	}
+	omap_writew(0, UDC_SYSCON1);
+
+	remove_proc_file();
+
+#ifdef	USE_ISO
+	free_irq(pdev->resource[3].start, udc);
+#endif
+	free_irq(pdev->resource[2].start, udc);
+	free_irq(pdev->resource[1].start, udc);
+
+	if (udc->dc_clk) {
+		if (udc->clk_requested)
+			omap_udc_enable_clock(0);
+		clk_put(udc->hhc_clk);
+		clk_put(udc->dc_clk);
+	}
 
 	release_mem_region(pdev->resource[0].start,
 			pdev->resource[0].end - pdev->resource[0].start + 1);
+
+	wait_for_completion(&done);
 
 	return 0;
 }

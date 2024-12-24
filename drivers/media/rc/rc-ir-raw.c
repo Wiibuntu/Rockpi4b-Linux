@@ -1,16 +1,7 @@
-/* rc-ir-raw.c - handle IR pulse/space events
- *
- * Copyright (C) 2010 by Mauro Carvalho Chehab
- *
- * This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation version 2 of the License.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0
+// rc-ir-raw.c - handle IR pulse/space events
+//
+// Copyright (C) 2010 by Mauro Carvalho Chehab
 
 #include <linux/export.h>
 #include <linux/kthread.h>
@@ -31,27 +22,16 @@ static int ir_raw_event_thread(void *data)
 {
 	struct ir_raw_event ev;
 	struct ir_raw_handler *handler;
-	struct ir_raw_event_ctrl *raw = data;
-	struct rc_dev *dev = raw->dev;
+	struct ir_raw_event_ctrl *raw = (struct ir_raw_event_ctrl *)data;
 
 	while (1) {
 		mutex_lock(&ir_raw_handler_lock);
 		while (kfifo_out(&raw->kfifo, &ev, 1)) {
-			if (is_timing_event(ev)) {
-				if (ev.duration == 0)
-					dev_warn_once(&dev->dev, "nonsensical timing event of duration 0");
-				if (is_timing_event(raw->prev_ev) &&
-				    !is_transition(&ev, &raw->prev_ev))
-					dev_warn_once(&dev->dev, "two consecutive events of type %s",
-						      TO_STR(ev.pulse));
-				if (raw->prev_ev.reset && ev.pulse == 0)
-					dev_warn_once(&dev->dev, "timing event after reset should be pulse");
-			}
 			list_for_each_entry(handler, &ir_raw_handler_list, list)
-				if (dev->enabled_protocols &
+				if (raw->dev->enabled_protocols &
 				    handler->protocols || !handler->protocols)
-					handler->decode(dev, ev);
-			ir_lirc_raw_event(dev, ev);
+					handler->decode(raw->dev, ev);
+			ir_lirc_raw_event(raw->dev, ev);
 			raw->prev_ev = ev;
 		}
 		mutex_unlock(&ir_raw_handler_lock);
@@ -111,7 +91,7 @@ EXPORT_SYMBOL_GPL(ir_raw_event_store);
 int ir_raw_event_store_edge(struct rc_dev *dev, bool pulse)
 {
 	ktime_t			now;
-	struct ir_raw_event	ev = {};
+	DEFINE_IR_RAW_EVENT(ev);
 
 	if (!dev->raw)
 		return -EINVAL;
@@ -166,7 +146,7 @@ EXPORT_SYMBOL_GPL(ir_raw_event_store_with_timeout);
 /**
  * ir_raw_event_store_with_filter() - pass next pulse/space to decoders with some processing
  * @dev:	the struct rc_dev device descriptor
- * @type:	the type of the event that has occurred
+ * @ev:		the event that has occurred
  *
  * This routine (which may be called from an interrupt context) works
  * in similar manner to ir_raw_event_store_edge.
@@ -219,7 +199,7 @@ void ir_raw_event_set_idle(struct rc_dev *dev, bool idle)
 	if (idle) {
 		dev->raw->this_ev.timeout = true;
 		ir_raw_event_store(dev, &dev->raw->this_ev);
-		dev->raw->this_ev = (struct ir_raw_event) {};
+		init_ir_raw_event(&dev->raw->this_ev);
 	}
 
 	if (dev->s_idle)
@@ -253,49 +233,7 @@ ir_raw_get_allowed_protocols(void)
 
 static int change_protocol(struct rc_dev *dev, u64 *rc_proto)
 {
-	struct ir_raw_handler *handler;
-	u32 timeout = 0;
-
-	mutex_lock(&ir_raw_handler_lock);
-	list_for_each_entry(handler, &ir_raw_handler_list, list) {
-		if (!(dev->enabled_protocols & handler->protocols) &&
-		    (*rc_proto & handler->protocols) && handler->raw_register)
-			handler->raw_register(dev);
-
-		if ((dev->enabled_protocols & handler->protocols) &&
-		    !(*rc_proto & handler->protocols) &&
-		    handler->raw_unregister)
-			handler->raw_unregister(dev);
-	}
-	mutex_unlock(&ir_raw_handler_lock);
-
-	if (!dev->max_timeout)
-		return 0;
-
-	mutex_lock(&ir_raw_handler_lock);
-	list_for_each_entry(handler, &ir_raw_handler_list, list) {
-		if (handler->protocols & *rc_proto) {
-			if (timeout < handler->min_timeout)
-				timeout = handler->min_timeout;
-		}
-	}
-	mutex_unlock(&ir_raw_handler_lock);
-
-	if (timeout == 0)
-		timeout = IR_DEFAULT_TIMEOUT;
-	else
-		timeout += MS_TO_NS(10);
-
-	if (timeout < dev->min_timeout)
-		timeout = dev->min_timeout;
-	else if (timeout > dev->max_timeout)
-		timeout = dev->max_timeout;
-
-	if (dev->s_timeout)
-		dev->s_timeout(dev, timeout);
-	else
-		dev->timeout = timeout;
-
+	/* the caller will update dev->enabled_protocols */
 	return 0;
 }
 
@@ -571,10 +509,10 @@ static void ir_raw_edge_handle(struct timer_list *t)
 	spin_lock_irqsave(&dev->raw->edge_spinlock, flags);
 	interval = ktime_sub(ktime_get(), dev->raw->last_event);
 	if (ktime_to_ns(interval) >= dev->timeout) {
-		struct ir_raw_event ev = {
-			.timeout = true,
-			.duration = ktime_to_ns(interval)
-		};
+		DEFINE_IR_RAW_EVENT(ev);
+
+		ev.timeout = true;
+		ev.duration = ktime_to_ns(interval);
 
 		ir_raw_event_store(dev, &ev);
 	} else {
@@ -631,7 +569,6 @@ int ir_raw_event_prepare(struct rc_dev *dev)
 
 	dev->raw->dev = dev;
 	dev->change_protocol = change_protocol;
-	dev->idle = true;
 	spin_lock_init(&dev->raw->edge_spinlock);
 	timer_setup(&dev->raw->edge_handle, ir_raw_edge_handle, 0);
 	INIT_KFIFO(dev->raw->kfifo);
@@ -641,6 +578,7 @@ int ir_raw_event_prepare(struct rc_dev *dev)
 
 int ir_raw_event_register(struct rc_dev *dev)
 {
+	struct ir_raw_handler *handler;
 	struct task_struct *thread;
 
 	thread = kthread_run(ir_raw_event_thread, dev->raw, "rc%u", dev->minor);
@@ -651,6 +589,9 @@ int ir_raw_event_register(struct rc_dev *dev)
 
 	mutex_lock(&ir_raw_handler_lock);
 	list_add_tail(&dev->raw->list, &ir_raw_client_list);
+	list_for_each_entry(handler, &ir_raw_handler_list, list)
+		if (handler->raw_register)
+			handler->raw_register(dev);
 	mutex_unlock(&ir_raw_handler_lock);
 
 	return 0;
@@ -678,8 +619,7 @@ void ir_raw_event_unregister(struct rc_dev *dev)
 	mutex_lock(&ir_raw_handler_lock);
 	list_del(&dev->raw->list);
 	list_for_each_entry(handler, &ir_raw_handler_list, list)
-		if (handler->raw_unregister &&
-		    (handler->protocols & dev->enabled_protocols))
+		if (handler->raw_unregister)
 			handler->raw_unregister(dev);
 	mutex_unlock(&ir_raw_handler_lock);
 
@@ -692,8 +632,13 @@ void ir_raw_event_unregister(struct rc_dev *dev)
 
 int ir_raw_handler_register(struct ir_raw_handler *ir_raw_handler)
 {
+	struct ir_raw_event_ctrl *raw;
+
 	mutex_lock(&ir_raw_handler_lock);
 	list_add_tail(&ir_raw_handler->list, &ir_raw_handler_list);
+	if (ir_raw_handler->raw_register)
+		list_for_each_entry(raw, &ir_raw_client_list, list)
+			ir_raw_handler->raw_register(raw->dev);
 	atomic64_or(ir_raw_handler->protocols, &available_protocols);
 	mutex_unlock(&ir_raw_handler_lock);
 
@@ -709,10 +654,9 @@ void ir_raw_handler_unregister(struct ir_raw_handler *ir_raw_handler)
 	mutex_lock(&ir_raw_handler_lock);
 	list_del(&ir_raw_handler->list);
 	list_for_each_entry(raw, &ir_raw_client_list, list) {
-		if (ir_raw_handler->raw_unregister &&
-		    (raw->dev->enabled_protocols & protocols))
-			ir_raw_handler->raw_unregister(raw->dev);
 		ir_raw_disable_protocols(raw->dev, protocols);
+		if (ir_raw_handler->raw_unregister)
+			ir_raw_handler->raw_unregister(raw->dev);
 	}
 	atomic64_andnot(protocols, &available_protocols);
 	mutex_unlock(&ir_raw_handler_lock);

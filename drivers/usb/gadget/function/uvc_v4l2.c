@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *	uvc_v4l2.c  --  USB Video Class Gadget driver
  *
  *	Copyright (C) 2009-2010
  *	    Laurent Pinchart (laurent.pinchart@ideasonboard.com)
- *
- *	This program is free software; you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation; either version 2 of the License, or
- *	(at your option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -53,8 +49,7 @@ uvc_send_response(struct uvc_device *uvc, struct uvc_request_data *data)
  * V4L2 ioctls
  */
 
-struct uvc_format
-{
+struct uvc_format {
 	u8 bpp;
 	u32 fcc;
 };
@@ -207,21 +202,11 @@ uvc_v4l2_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 		return ret;
 
 	/*
-	 * Alt settings in an interface are supported only
-	 * for ISOC endpoints as there are different alt-
-	 * settings for zero-bandwidth and full-bandwidth
-	 * cases, but the same is not true for BULK endpoints,
-	 * as they have a single alt-setting.
+	 * Complete the alternate setting selection setup phase now that
+	 * userspace is ready to provide video frames.
 	 */
-	if (!usb_endpoint_xfer_bulk(video->ep->desc)) {
-		/*
-		 * Complete the alternate setting selection
-		 * setup phase now that userspace is ready
-		 * to provide video frames.
-		 */
-		uvc_function_setup_continue(uvc);
-		uvc->state = UVC_STATE_STREAMING;
-	}
+	uvc_function_setup_continue(uvc);
+	uvc->state = UVC_STATE_STREAMING;
 
 	return 0;
 }
@@ -344,7 +329,7 @@ uvc_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 	return uvcg_queue_mmap(&uvc->video.queue, vma);
 }
 
-static unsigned int
+static __poll_t
 uvc_v4l2_poll(struct file *file, poll_table *wait)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -365,14 +350,11 @@ static unsigned long uvcg_v4l2_get_unmapped_area(struct file *file,
 }
 #endif
 
-struct v4l2_file_operations uvc_v4l2_fops = {
+const struct v4l2_file_operations uvc_v4l2_fops = {
 	.owner		= THIS_MODULE,
 	.open		= uvc_v4l2_open,
 	.release	= uvc_v4l2_release,
 	.unlocked_ioctl	= video_ioctl2,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl32	= video_ioctl2,
-#endif
 	.mmap		= uvc_v4l2_mmap,
 	.poll		= uvc_v4l2_poll,
 #ifndef CONFIG_MMU

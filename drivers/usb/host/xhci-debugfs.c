@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * xhci-debugfs.c - xHCI debugfs interface
  *
  * Copyright (C) 2017 Intel Corporation
  *
  * Author: Lu Baolu <baolu.lu@linux.intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/slab.h>
@@ -136,6 +133,30 @@ static void xhci_debugfs_regset(struct xhci_hcd *xhci, u32 base,
 	regset->base = hcd->regs + base;
 
 	debugfs_create_regset32((const char *)rgs->name, 0444, parent, regset);
+}
+
+static void xhci_debugfs_extcap_regset(struct xhci_hcd *xhci, int cap_id,
+				       const struct debugfs_reg32 *regs,
+				       size_t n, const char *cap_name)
+{
+	u32			offset;
+	int			index = 0;
+	size_t			psic, nregs = n;
+	void __iomem		*base = &xhci->cap_regs->hc_capbase;
+
+	offset = xhci_find_next_ext_cap(base, 0, cap_id);
+	while (offset) {
+		if (cap_id == XHCI_EXT_CAPS_PROTOCOL) {
+			psic = XHCI_EXT_PORT_PSIC(readl(base + offset + 8));
+			nregs = min(4 + psic, n);
+		}
+
+		xhci_debugfs_regset(xhci, offset, regs, nregs,
+				    xhci->debugfs_root, "%s:%02d",
+				    cap_name, index);
+		offset = xhci_find_next_ext_cap(base, offset, cap_id);
+		index++;
+	}
 }
 
 static int xhci_ring_enqueue_show(struct seq_file *s, void *unused)
@@ -451,6 +472,21 @@ void xhci_debugfs_init(struct xhci_hcd *xhci)
 			    readl(&xhci->cap_regs->run_regs_off) & RTSOFF_MASK,
 			    xhci_runtime_regs, ARRAY_SIZE(xhci_runtime_regs),
 			    xhci->debugfs_root, "reg-runtime");
+
+	xhci_debugfs_extcap_regset(xhci, XHCI_EXT_CAPS_LEGACY,
+				   xhci_extcap_legsup,
+				   ARRAY_SIZE(xhci_extcap_legsup),
+				   "reg-ext-legsup");
+
+	xhci_debugfs_extcap_regset(xhci, XHCI_EXT_CAPS_PROTOCOL,
+				   xhci_extcap_protocol,
+				   ARRAY_SIZE(xhci_extcap_protocol),
+				   "reg-ext-protocol");
+
+	xhci_debugfs_extcap_regset(xhci, XHCI_EXT_CAPS_DEBUG,
+				   xhci_extcap_dbc,
+				   ARRAY_SIZE(xhci_extcap_dbc),
+				   "reg-ext-dbc");
 
 	xhci_debugfs_create_ring_dir(xhci, &xhci->cmd_ring,
 				     "command-ring",

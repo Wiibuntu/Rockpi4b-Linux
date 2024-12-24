@@ -69,7 +69,7 @@ static int tps65132_regulator_enable(struct regulator_dev *rdev)
 	int ret;
 
 	if (!IS_ERR(rpdata->en_gpiod)) {
-		gpiod_direction_output(rpdata->en_gpiod, 1);
+		gpiod_set_value_cansleep(rpdata->en_gpiod, 1);
 		rpdata->ena_gpio_state = 1;
 	}
 
@@ -94,15 +94,15 @@ static int tps65132_regulator_disable(struct regulator_dev *rdev)
 	struct tps65132_reg_pdata *rpdata = &tps->reg_pdata[id];
 
 	if (!IS_ERR(rpdata->en_gpiod)) {
-		gpiod_direction_output(rpdata->en_gpiod, 0);
+		gpiod_set_value_cansleep(rpdata->en_gpiod, 0);
 		rpdata->ena_gpio_state = 0;
 	}
 
 	if (!IS_ERR(rpdata->act_dis_gpiod)) {
-		gpiod_direction_output(rpdata->act_dis_gpiod, 1);
+		gpiod_set_value_cansleep(rpdata->act_dis_gpiod, 1);
 		usleep_range(rpdata->act_dis_time_us, rpdata->act_dis_time_us +
 			     TPS65132_ACT_DIS_TIME_SLACK);
-		gpiod_direction_output(rpdata->act_dis_gpiod, 0);
+		gpiod_set_value_cansleep(rpdata->act_dis_gpiod, 0);
 	}
 
 	return 0;
@@ -139,8 +139,8 @@ static int tps65132_of_parse_cb(struct device_node *np,
 	struct tps65132_reg_pdata *rpdata = &tps->reg_pdata[desc->id];
 	int ret;
 
-	rpdata->en_gpiod = devm_get_gpiod_from_child(tps->dev, "enable",
-						     &np->fwnode);
+	rpdata->en_gpiod = devm_fwnode_get_index_gpiod_from_child(tps->dev,
+					"enable", 0, &np->fwnode, 0, "enable");
 	if (IS_ERR(rpdata->en_gpiod)) {
 		ret = PTR_ERR(rpdata->en_gpiod);
 
@@ -150,9 +150,9 @@ static int tps65132_of_parse_cb(struct device_node *np,
 		return 0;
 	}
 
-	rpdata->act_dis_gpiod = devm_get_gpiod_from_child(tps->dev,
-							  "active-discharge",
-							  &np->fwnode);
+	rpdata->act_dis_gpiod = devm_fwnode_get_index_gpiod_from_child(
+					tps->dev, "active-discharge", 0,
+					&np->fwnode, 0, "active-discharge");
 	if (IS_ERR(rpdata->act_dis_gpiod)) {
 		ret = PTR_ERR(rpdata->act_dis_gpiod);
 

@@ -228,7 +228,6 @@ static int __get_v4l2_format32(struct v4l2_format __user *kp,
 		return copy_in_user(&kp->fmt.sdr, &up->fmt.sdr,
 				    sizeof(kp->fmt.sdr)) ? -EFAULT : 0;
 	case V4L2_BUF_TYPE_META_CAPTURE:
-	case V4L2_BUF_TYPE_META_OUTPUT:
 		return copy_in_user(&kp->fmt.meta, &up->fmt.meta,
 				    sizeof(kp->fmt.meta)) ? -EFAULT : 0;
 	default:
@@ -298,7 +297,6 @@ static int __put_v4l2_format32(struct v4l2_format __user *kp,
 		return copy_in_user(&up->fmt.sdr, &kp->fmt.sdr,
 				    sizeof(kp->fmt.sdr)) ? -EFAULT : 0;
 	case V4L2_BUF_TYPE_META_CAPTURE:
-	case V4L2_BUF_TYPE_META_OUTPUT:
 		return copy_in_user(&up->fmt.meta, &kp->fmt.meta,
 				    sizeof(kp->fmt.meta)) ? -EFAULT : 0;
 	default:
@@ -390,7 +388,7 @@ struct v4l2_buffer32 {
 		__s32		fd;
 	} m;
 	__u32			length;
-	__u32			config_store;
+	__u32			reserved2;
 	__u32			reserved;
 };
 
@@ -608,7 +606,7 @@ static int put_v4l2_buffer32(struct v4l2_buffer __user *kp,
 	    assign_in_user(&up->timestamp.tv_usec, &kp->timestamp.tv_usec) ||
 	    copy_in_user(&up->timecode, &kp->timecode, sizeof(kp->timecode)) ||
 	    assign_in_user(&up->sequence, &kp->sequence) ||
-	    assign_in_user(&up->config_store, &kp->config_store) ||
+	    assign_in_user(&up->reserved2, &kp->reserved2) ||
 	    assign_in_user(&up->reserved, &kp->reserved) ||
 	    get_user(length, &kp->length) ||
 	    put_user(length, &up->length))
@@ -873,7 +871,7 @@ static int put_v4l2_ext_controls32(struct file *file,
 	    get_user(kcontrols, &kp->controls))
 		return -EFAULT;
 
-	if (!count || count > (U32_MAX/sizeof(*ucontrols)))
+	if (!count)
 		return 0;
 	if (get_user(p, &up->controls))
 		return -EFAULT;

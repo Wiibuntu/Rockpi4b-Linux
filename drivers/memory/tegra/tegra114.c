@@ -912,11 +912,26 @@ static const struct tegra_smmu_swgroup tegra114_swgroups[] = {
 	{ .name = "tsec",      .swgroup = TEGRA_SWGROUP_TSEC,      .reg = 0x294 },
 };
 
+static const unsigned int tegra114_group_display[] = {
+	TEGRA_SWGROUP_DC,
+	TEGRA_SWGROUP_DCB,
+};
+
+static const struct tegra_smmu_group_soc tegra114_groups[] = {
+	{
+		.name = "display",
+		.swgroups = tegra114_group_display,
+		.num_swgroups = ARRAY_SIZE(tegra114_group_display),
+	},
+};
+
 static const struct tegra_smmu_soc tegra114_smmu_soc = {
 	.clients = tegra114_mc_clients,
 	.num_clients = ARRAY_SIZE(tegra114_mc_clients),
 	.swgroups = tegra114_swgroups,
 	.num_swgroups = ARRAY_SIZE(tegra114_swgroups),
+	.groups = tegra114_groups,
+	.num_groups = ARRAY_SIZE(tegra114_groups),
 	.supports_round_robin_arbitration = false,
 	.supports_request_limit = false,
 	.num_tlb_lines = 32,
@@ -930,6 +945,4 @@ const struct tegra_mc_soc tegra114_mc_soc = {
 	.atom_size = 32,
 	.client_id_mask = 0x7f,
 	.smmu = &tegra114_smmu_soc,
-	.intmask = MC_INT_INVALID_SMMU_PAGE | MC_INT_SECURITY_VIOLATION |
-		   MC_INT_DECERR_EMEM,
 };

@@ -13,7 +13,7 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/types.h>
 #include <linux/spinlock.h>
 
@@ -46,19 +46,19 @@ void ath79_ddr_ctrl_init(void)
 {
 	ath79_ddr_base = ioremap_nocache(AR71XX_DDR_CTRL_BASE,
 					 AR71XX_DDR_CTRL_SIZE);
-	if (soc_is_ar71xx() || soc_is_ar934x()) {
-		ath79_ddr_wb_flush_base = ath79_ddr_base + 0x9c;
-		ath79_ddr_pci_win_base = ath79_ddr_base + 0x7c;
-	} else {
+	if (soc_is_ar913x() || soc_is_ar724x() || soc_is_ar933x()) {
 		ath79_ddr_wb_flush_base = ath79_ddr_base + 0x7c;
 		ath79_ddr_pci_win_base = 0;
+	} else {
+		ath79_ddr_wb_flush_base = ath79_ddr_base + 0x9c;
+		ath79_ddr_pci_win_base = ath79_ddr_base + 0x7c;
 	}
 }
 EXPORT_SYMBOL_GPL(ath79_ddr_ctrl_init);
 
 void ath79_ddr_wb_flush(u32 reg)
 {
-	void __iomem *flush_reg = ath79_ddr_wb_flush_base + (reg * 4);
+	void __iomem *flush_reg = ath79_ddr_wb_flush_base + reg;
 
 	/* Flush the DDR write buffer. */
 	__raw_writel(0x1, flush_reg);

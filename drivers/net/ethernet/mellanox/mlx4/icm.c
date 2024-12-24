@@ -43,12 +43,12 @@
 #include "fw.h"
 
 /*
- * We allocate in as big chunks as we can, up to a maximum of 256 KB
- * per chunk.
+ * We allocate in page size (default 4KB on many archs) chunks to avoid high
+ * order memory allocations in fragmented/high usage memory situation.
  */
 enum {
-	MLX4_ICM_ALLOC_SIZE	= 1 << 18,
-	MLX4_TABLE_CHUNK_SIZE	= 1 << 18
+	MLX4_ICM_ALLOC_SIZE	= PAGE_SIZE,
+	MLX4_TABLE_CHUNK_SIZE	= PAGE_SIZE,
 };
 
 static void mlx4_free_icm_pages(struct mlx4_dev *dev, struct mlx4_icm_chunk *chunk)
@@ -251,8 +251,7 @@ int mlx4_UNMAP_ICM_AUX(struct mlx4_dev *dev)
 			MLX4_CMD_TIME_CLASS_B, MLX4_CMD_NATIVE);
 }
 
-int mlx4_table_get(struct mlx4_dev *dev, struct mlx4_icm_table *table, u32 obj,
-		   gfp_t gfp)
+int mlx4_table_get(struct mlx4_dev *dev, struct mlx4_icm_table *table, u32 obj)
 {
 	u32 i = (obj & (table->num_obj - 1)) /
 			(MLX4_TABLE_CHUNK_SIZE / table->obj_size);
@@ -266,7 +265,7 @@ int mlx4_table_get(struct mlx4_dev *dev, struct mlx4_icm_table *table, u32 obj,
 	}
 
 	table->icm[i] = mlx4_alloc_icm(dev, MLX4_TABLE_CHUNK_SIZE >> PAGE_SHIFT,
-				       (table->lowmem ? gfp : GFP_HIGHUSER) |
+				       (table->lowmem ? GFP_KERNEL : GFP_HIGHUSER) |
 				       __GFP_NOWARN, table->coherent);
 	if (!table->icm[i]) {
 		ret = -ENOMEM;
@@ -363,7 +362,7 @@ int mlx4_table_get_range(struct mlx4_dev *dev, struct mlx4_icm_table *table,
 	u32 i;
 
 	for (i = start; i <= end; i += inc) {
-		err = mlx4_table_get(dev, table, i, GFP_KERNEL);
+		err = mlx4_table_get(dev, table, i);
 		if (err)
 			goto fail;
 	}
@@ -399,9 +398,11 @@ int mlx4_init_icm_table(struct mlx4_dev *dev, struct mlx4_icm_table *table,
 	u64 size;
 
 	obj_per_chunk = MLX4_TABLE_CHUNK_SIZE / obj_size;
+	if (WARN_ON(!obj_per_chunk))
+		return -EINVAL;
 	num_icm = (nobj + obj_per_chunk - 1) / obj_per_chunk;
 
-	table->icm      = kcalloc(num_icm, sizeof *table->icm, GFP_KERNEL);
+	table->icm      = kvzalloc(num_icm * sizeof(*table->icm), GFP_KERNEL);
 	if (!table->icm)
 		return -ENOMEM;
 	table->virt     = virt;
@@ -447,7 +448,7 @@ err:
 			mlx4_free_icm(dev, table->icm[i], use_coherent);
 		}
 
-	kfree(table->icm);
+	kvfree(table->icm);
 
 	return -ENOMEM;
 }
@@ -463,5 +464,5 @@ void mlx4_cleanup_icm_table(struct mlx4_dev *dev, struct mlx4_icm_table *table)
 			mlx4_free_icm(dev, table->icm[i], table->coherent);
 		}
 
-	kfree(table->icm);
+	kvfree(table->icm);
 }

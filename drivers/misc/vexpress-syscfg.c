@@ -16,7 +16,7 @@
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/syscore_ops.h>
 #include <linux/vexpress.h>
@@ -61,7 +61,7 @@ static int vexpress_syscfg_exec(struct vexpress_syscfg_func *func,
 	int tries;
 	long timeout;
 
-	if (WARN_ON(index >= func->num_templates))
+	if (WARN_ON(index > func->num_templates))
 		return -EINVAL;
 
 	command = readl(syscfg->base + SYS_CFGCTRL);
@@ -270,10 +270,8 @@ static int vexpress_syscfg_probe(struct platform_device *pdev)
 	/* Must use dev.parent (MFD), as that's where DT phandle points at... */
 	bridge = vexpress_config_bridge_register(pdev->dev.parent,
 			&vexpress_syscfg_bridge_ops, syscfg);
-	if (IS_ERR(bridge))
-		return PTR_ERR(bridge);
 
-	return 0;
+	return PTR_ERR_OR_ZERO(bridge);
 }
 
 static const struct platform_device_id vexpress_syscfg_id_table[] = {

@@ -38,6 +38,7 @@
  * @max: max credits index by traffic class
  * @bwg_id: bandwidth grouping indexed by traffic class
  * @prio_type: priority type indexed by traffic class
+ * @prio_tc: priority to tc assignments indexed by priority
  *
  * Configure Rx Packet Arbiter and credits for each traffic class.
  */
@@ -148,6 +149,7 @@ s32 ixgbe_dcb_config_tx_desc_arbiter_82599(struct ixgbe_hw *hw,
  * @max: max credits index by traffic class
  * @bwg_id: bandwidth grouping indexed by traffic class
  * @prio_type: priority type indexed by traffic class
+ * @prio_tc: priority to tc assignments indexed by priority
  *
  * Configure Tx Packet Arbiter and credits for each traffic class.
  */
@@ -223,13 +225,13 @@ s32 ixgbe_dcb_config_pfc_82599(struct ixgbe_hw *hw, u8 pfc_en, u8 *prio_tc)
 	reg |= IXGBE_MFLCN_DPF;
 
 	/*
-	 * X540 supports per TC Rx priority flow control.  So
-	 * clear all TCs and only enable those that should be
+	 * X540 & X550 supports per TC Rx priority flow control.
+	 * So clear all TCs and only enable those that should be
 	 * enabled.
 	 */
 	reg &= ~(IXGBE_MFLCN_RPFCE_MASK | IXGBE_MFLCN_RFCE);
 
-	if (hw->mac.type == ixgbe_mac_X540)
+	if (hw->mac.type >= ixgbe_mac_X540)
 		reg |= pfc_en << IXGBE_MFLCN_RPFCE_SHIFT;
 
 	if (pfc_en)
@@ -248,7 +250,7 @@ s32 ixgbe_dcb_config_pfc_82599(struct ixgbe_hw *hw, u8 pfc_en, u8 *prio_tc)
 		int enabled = 0;
 
 		for (j = 0; j < MAX_USER_PRIORITY; j++) {
-			if ((prio_tc[j] == i) && (pfc_en & (1 << j))) {
+			if ((prio_tc[j] == i) && (pfc_en & BIT(j))) {
 				enabled = 1;
 				break;
 			}
@@ -344,11 +346,12 @@ static s32 ixgbe_dcb_config_tc_stats_82599(struct ixgbe_hw *hw)
 /**
  * ixgbe_dcb_hw_config_82599 - Configure and enable DCB
  * @hw: pointer to hardware structure
+ * @pfc_en: enabled pfc bitmask
  * @refill: refill credits index by traffic class
  * @max: max credits index by traffic class
  * @bwg_id: bandwidth grouping indexed by traffic class
  * @prio_type: priority type indexed by traffic class
- * @pfc_en: enabled pfc bitmask
+ * @prio_tc: priority to tc assignments indexed by priority
  *
  * Configure dcb settings and enable dcb mode.
  */

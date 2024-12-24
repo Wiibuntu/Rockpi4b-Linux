@@ -17,7 +17,6 @@
 #include <asm/entry.h>
 #include <asm/arcregs.h>
 #include <asm/cache.h>
-#include <asm/irqflags.h>
 
 .macro CPU_EARLY_SETUP
 
@@ -48,15 +47,6 @@
 	sr	r5, [ARC_REG_DC_CTRL]
 
 1:
-
-#ifdef CONFIG_ISA_ARCV2
-	; Unaligned access is disabled at reset, so re-enable early as
-	; gcc 7.3.1 (ARC GNU 2018.03) onwards generates unaligned access
-	; by default
-	lr	r5, [status32]
-	bset	r5, r5, STATUS_AD_BIT
-	kflag	r5
-#endif
 .endm
 
 	.section .init.text, "ax",@progbits
@@ -81,14 +71,14 @@ ENTRY(stext)
 	GET_CPU_ID  r5
 	cmp	r5, 0
 	mov.nz	r0, r5
-#ifdef CONFIG_ARC_SMP_HALT_ON_RESET
-	; Non-Master can proceed as system would be booted sufficiently
-	jnz	first_lines_of_secondary
-#else
+	bz	.Lmaster_proceed
+
 	; Non-Masters wait for Master to boot enough and bring them up
-	jnz	arc_platform_smp_wait_to_boot
-#endif
-	; Master falls thru
+	; when they resume, tail-call to entry point
+	mov	blink, @first_lines_of_secondary
+	j	arc_platform_smp_wait_to_boot
+
+.Lmaster_proceed:
 #endif
 
 	; Clear BSS before updating any globals

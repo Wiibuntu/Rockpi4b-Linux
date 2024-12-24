@@ -47,7 +47,7 @@
 #include "rk3288.dtsi"
 
 / {
-	memory {
+	memory@0 {
 		device_type = "memory";
 		reg = <0x0 0x0 0x0 0x80000000>;
 	};
@@ -61,16 +61,16 @@
 		pinctrl-0 = <&pwr_key_l>;
 		power {
 			label = "Power";
-			gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio0 RK_PA5 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_POWER>;
 			debounce-interval = <100>;
-			gpio-key,wakeup;
+			wakeup-source;
 		};
 	};
 
 	gpio-restart {
 		compatible = "gpio-restart";
-		gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio0 RK_PB5 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&ap_warm_reset_h>;
 		priority = <200>;
@@ -80,7 +80,7 @@
 		compatible = "mmc-pwrseq-emmc";
 		pinctrl-0 = <&emmc_reset>;
 		pinctrl-names = "default";
-		reset-gpios = <&gpio2 9 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_HIGH>;
 	};
 
 	sdio_pwrseq: sdio-pwrseq {
@@ -96,7 +96,7 @@
 		 * - SDIO_RESET_L_WL_REG_ON
 		 * - PDN (power down when low)
 		 */
-		reset-gpios = <&gpio4 28 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio4 RK_PD4 GPIO_ACTIVE_LOW>;
 	};
 
 	vcc_5v: vcc-5v {
@@ -124,17 +124,26 @@
 		regulator-boot-on;
 		vin-supply = <&vcc_5v>;
 	};
-
-	xin32k: xin32k {
-		compatible = "fixed-clock";
-		clock-frequency = <32768>;
-		clock-output-names = "xin32k";
-		#clock-cells = <0>;
-	};
 };
 
 &cpu0 {
 	cpu0-supply = <&vdd_cpu>;
+	operating-points = <
+		/* KHz    uV */
+		1800000 1400000
+		1704000 1350000
+		1608000 1300000
+		1512000 1250000
+		1416000 1200000
+		1200000 1100000
+		1008000 1050000
+		 816000 1000000
+		 696000  950000
+		 600000  900000
+		 408000  900000
+		 216000  900000
+		 126000  900000
+	>;
 };
 
 &emmc {
@@ -147,12 +156,17 @@
 	mmc-hs200-1_8v;
 	mmc-pwrseq = <&emmc_pwrseq>;
 	non-removable;
-	num-slots = <1>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&emmc_clk &emmc_cmd &emmc_bus8>;
 };
 
+&gpu {
+	mali-supply = <&vdd_gpu>;
+	status = "okay";
+};
+
 &hdmi {
+	ddc-i2c-bus = <&i2c5>;
 	status = "okay";
 };
 
@@ -166,9 +180,9 @@
 	rk808: pmic@1b {
 		compatible = "rockchip,rk808";
 		reg = <0x1b>;
-		clock-output-names = "rk808-clkout1", "wifibt_32kin";
+		clock-output-names = "xin32k", "wifibt_32kin";
 		interrupt-parent = <&gpio0>;
-		interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
+		interrupts = <RK_PA4 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pmic_int_l>;
 		rockchip,system-power-controller;
@@ -324,6 +338,14 @@
 	i2c-scl-rising-time-ns = <300>;		/* 225ns measured */
 };
 
+&i2c5 {
+	status = "okay";
+
+	clock-frequency = <100000>;
+	i2c-scl-falling-time-ns = <300>;
+	i2c-scl-rising-time-ns = <1000>;
+};
+
 &io_domains {
 	status = "okay";
 
@@ -349,7 +371,6 @@
 	keep-power-in-suspend;
 	mmc-pwrseq = <&sdio_pwrseq>;
 	non-removable;
-	num-slots = <1>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdio0_clk &sdio0_cmd &sdio0_bus4>;
 	sd-uhs-sdr12;
@@ -364,6 +385,12 @@
 	status = "okay";
 
 	rx-sample-delay-ns = <12>;
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		spi-max-frequency = <50000000>;
+		reg = <0>;
+	};
 };
 
 &tsadc {
@@ -371,7 +398,6 @@
 
 	rockchip,hw-tshut-mode = <1>; /* tshut mode 0:CRU 1:GPIO */
 	rockchip,hw-tshut-polarity = <1>; /* tshut polarity 0:LOW 1:HIGH */
-	pinctrl-1 = <&otp_out>;
 };
 
 &uart0 {

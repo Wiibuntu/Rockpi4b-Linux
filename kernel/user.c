@@ -13,10 +13,10 @@
 #include <linux/slab.h>
 #include <linux/bitops.h>
 #include <linux/key.h>
+#include <linux/sched/user.h>
 #include <linux/interrupt.h>
 #include <linux/export.h>
 #include <linux/user_namespace.h>
-#include <linux/proc_fs.h>
 #include <linux/proc_ns.h>
 
 /*
@@ -26,26 +26,32 @@
 struct user_namespace init_user_ns = {
 	.uid_map = {
 		.nr_extents = 1,
-		.extent[0] = {
-			.first = 0,
-			.lower_first = 0,
-			.count = 4294967295U,
+		{
+			.extent[0] = {
+				.first = 0,
+				.lower_first = 0,
+				.count = 4294967295U,
+			},
 		},
 	},
 	.gid_map = {
 		.nr_extents = 1,
-		.extent[0] = {
-			.first = 0,
-			.lower_first = 0,
-			.count = 4294967295U,
+		{
+			.extent[0] = {
+				.first = 0,
+				.lower_first = 0,
+				.count = 4294967295U,
+			},
 		},
 	},
 	.projid_map = {
 		.nr_extents = 1,
-		.extent[0] = {
-			.first = 0,
-			.lower_first = 0,
-			.count = 4294967295U,
+		{
+			.extent[0] = {
+				.first = 0,
+				.lower_first = 0,
+				.count = 4294967295U,
+			},
 		},
 	},
 	.count = ATOMIC_INIT(3),
@@ -95,6 +101,7 @@ struct user_struct root_user = {
 	.sigpending	= ATOMIC_INIT(0),
 	.locked_shm     = 0,
 	.uid		= GLOBAL_ROOT_UID,
+	.ratelimit	= RATELIMIT_STATE_INIT(root_user.ratelimit, 0, 0),
 };
 
 /*
@@ -185,6 +192,8 @@ struct user_struct *alloc_uid(kuid_t uid)
 
 		new->uid = uid;
 		atomic_set(&new->__count, 1);
+		ratelimit_state_init(&new->ratelimit, HZ, 100);
+		ratelimit_set_flags(&new->ratelimit, RATELIMIT_MSG_ON_RELEASE);
 
 		/*
 		 * Before adding this, check whether we raced
@@ -202,7 +211,6 @@ struct user_struct *alloc_uid(kuid_t uid)
 		}
 		spin_unlock_irq(&uidhash_lock);
 	}
-	proc_register_uid(uid);
 
 	return up;
 
@@ -224,7 +232,6 @@ static int __init uid_cache_init(void)
 	spin_lock_irq(&uidhash_lock);
 	uid_hash_insert(&root_user, uidhashentry(GLOBAL_ROOT_UID));
 	spin_unlock_irq(&uidhash_lock);
-	proc_register_uid(GLOBAL_ROOT_UID);
 
 	return 0;
 }

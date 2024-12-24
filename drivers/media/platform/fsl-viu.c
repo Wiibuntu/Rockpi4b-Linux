@@ -339,9 +339,9 @@ static int restart_video_queue(struct viu_dmaqueue *vidq)
 	}
 }
 
-static void viu_vid_timeout(unsigned long data)
+static void viu_vid_timeout(struct timer_list *t)
 {
-	struct viu_dev *dev = (struct viu_dev *)data;
+	struct viu_dev *dev = from_timer(dev, t, vidq.timeout);
 	struct viu_buf *buf;
 	struct viu_dmaqueue *vidq = &dev->vidq;
 
@@ -549,7 +549,7 @@ static void buffer_release(struct videobuf_queue *vq,
 	free_buffer(vq, buf);
 }
 
-static struct videobuf_queue_ops viu_video_qops = {
+static const struct videobuf_queue_ops viu_video_qops = {
 	.buf_setup      = buffer_setup,
 	.buf_prepare    = buffer_prepare,
 	.buf_queue      = buffer_queue,
@@ -1263,18 +1263,18 @@ static ssize_t viu_read(struct file *file, char __user *data, size_t count,
 	return 0;
 }
 
-static unsigned int viu_poll(struct file *file, struct poll_table_struct *wait)
+static __poll_t viu_poll(struct file *file, struct poll_table_struct *wait)
 {
 	struct viu_fh *fh = file->private_data;
 	struct videobuf_queue *q = &fh->vb_vidq;
 	struct viu_dev *dev = fh->dev;
-	unsigned long req_events = poll_requested_events(wait);
-	unsigned int res = v4l2_ctrl_poll(file, wait);
+	__poll_t req_events = poll_requested_events(wait);
+	__poll_t res = v4l2_ctrl_poll(file, wait);
 
 	if (V4L2_BUF_TYPE_VIDEO_CAPTURE != fh->type)
-		return POLLERR;
+		return EPOLLERR;
 
-	if (!(req_events & (POLLIN | POLLRDNORM)))
+	if (!(req_events & (EPOLLIN | EPOLLRDNORM)))
 		return res;
 
 	mutex_lock(&dev->lock);
@@ -1340,7 +1340,7 @@ static int viu_mmap(struct file *file, struct vm_area_struct *vma)
 	return ret;
 }
 
-static struct v4l2_file_operations viu_fops = {
+static const struct v4l2_file_operations viu_fops = {
 	.owner		= THIS_MODULE,
 	.open		= viu_open,
 	.release	= viu_release,
@@ -1380,7 +1380,7 @@ static const struct v4l2_ioctl_ops viu_ioctl_ops = {
 	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
 };
 
-static struct video_device viu_template = {
+static const struct video_device viu_template = {
 	.name		= "FSL viu",
 	.fops		= &viu_fops,
 	.minor		= -1,
@@ -1417,7 +1417,7 @@ static int viu_of_probe(struct platform_device *op)
 				     sizeof(struct viu_reg), DRV_NAME)) {
 		dev_err(&op->dev, "Error while requesting mem region\n");
 		ret = -EBUSY;
-		goto err_irq;
+		goto err;
 	}
 
 	/* remap registers */
@@ -1425,7 +1425,7 @@ static int viu_of_probe(struct platform_device *op)
 	if (!viu_regs) {
 		dev_err(&op->dev, "Can't map register set\n");
 		ret = -ENOMEM;
-		goto err_irq;
+		goto err;
 	}
 
 	/* Prepare our private structure */
@@ -1433,7 +1433,7 @@ static int viu_of_probe(struct platform_device *op)
 	if (!viu_dev) {
 		dev_err(&op->dev, "Can't allocate private structure\n");
 		ret = -ENOMEM;
-		goto err_irq;
+		goto err;
 	}
 
 	viu_dev->vr = viu_regs;
@@ -1449,21 +1449,16 @@ static int viu_of_probe(struct platform_device *op)
 	ret = v4l2_device_register(viu_dev->dev, &viu_dev->v4l2_dev);
 	if (ret < 0) {
 		dev_err(&op->dev, "v4l2_device_register() failed: %d\n", ret);
-		goto err_irq;
+		goto err;
 	}
 
 	ad = i2c_get_adapter(0);
-	if (!ad) {
-		ret = -EFAULT;
-		dev_err(&op->dev, "couldn't get i2c adapter\n");
-		goto err_v4l2;
-	}
 
 	v4l2_ctrl_handler_init(&viu_dev->hdl, 5);
 	if (viu_dev->hdl.error) {
 		ret = viu_dev->hdl.error;
 		dev_err(&op->dev, "couldn't register control\n");
-		goto err_i2c;
+		goto err_vdev;
 	}
 	/* This control handler will inherit the control(s) from the
 	   sub-device(s). */
@@ -1471,9 +1466,7 @@ static int viu_of_probe(struct platform_device *op)
 	viu_dev->decoder = v4l2_i2c_new_subdev(&viu_dev->v4l2_dev, ad,
 			"saa7113", VIU_VIDEO_DECODER_ADDR, NULL);
 
-	viu_dev->vidq.timeout.function = viu_vid_timeout;
-	viu_dev->vidq.timeout.data     = (unsigned long)viu_dev;
-	init_timer(&viu_dev->vidq.timeout);
+	timer_setup(&viu_dev->vidq.timeout, viu_vid_timeout, 0);
 	viu_dev->std = V4L2_STD_NTSC_M;
 	viu_dev->first = 1;
 
@@ -1481,7 +1474,7 @@ static int viu_of_probe(struct platform_device *op)
 	vdev = video_device_alloc();
 	if (vdev == NULL) {
 		ret = -ENOMEM;
-		goto err_hdl;
+		goto err_vdev;
 	}
 
 	*vdev = viu_template;
@@ -1502,7 +1495,7 @@ static int viu_of_probe(struct platform_device *op)
 	ret = video_register_device(viu_dev->vdev, VFL_TYPE_GRABBER, -1);
 	if (ret < 0) {
 		video_device_release(viu_dev->vdev);
-		goto err_unlock;
+		goto err_vdev;
 	}
 
 	/* enable VIU clock */
@@ -1510,12 +1503,12 @@ static int viu_of_probe(struct platform_device *op)
 	if (IS_ERR(clk)) {
 		dev_err(&op->dev, "failed to lookup the clock!\n");
 		ret = PTR_ERR(clk);
-		goto err_vdev;
+		goto err_clk;
 	}
 	ret = clk_prepare_enable(clk);
 	if (ret) {
 		dev_err(&op->dev, "failed to enable the clock!\n");
-		goto err_vdev;
+		goto err_clk;
 	}
 	viu_dev->clk = clk;
 
@@ -1526,7 +1519,7 @@ static int viu_of_probe(struct platform_device *op)
 	if (request_irq(viu_dev->irq, viu_intr, 0, "viu", (void *)viu_dev)) {
 		dev_err(&op->dev, "Request VIU IRQ failed.\n");
 		ret = -ENODEV;
-		goto err_clk;
+		goto err_irq;
 	}
 
 	mutex_unlock(&viu_dev->lock);
@@ -1534,19 +1527,16 @@ static int viu_of_probe(struct platform_device *op)
 	dev_info(&op->dev, "Freescale VIU Video Capture Board\n");
 	return ret;
 
-err_clk:
-	clk_disable_unprepare(viu_dev->clk);
-err_vdev:
-	video_unregister_device(viu_dev->vdev);
-err_unlock:
-	mutex_unlock(&viu_dev->lock);
-err_hdl:
-	v4l2_ctrl_handler_free(&viu_dev->hdl);
-err_i2c:
-	i2c_put_adapter(ad);
-err_v4l2:
-	v4l2_device_unregister(&viu_dev->v4l2_dev);
 err_irq:
+	clk_disable_unprepare(viu_dev->clk);
+err_clk:
+	video_unregister_device(viu_dev->vdev);
+err_vdev:
+	v4l2_ctrl_handler_free(&viu_dev->hdl);
+	mutex_unlock(&viu_dev->lock);
+	i2c_put_adapter(ad);
+	v4l2_device_unregister(&viu_dev->v4l2_dev);
+err:
 	irq_dispose_mapping(viu_irq);
 	return ret;
 }

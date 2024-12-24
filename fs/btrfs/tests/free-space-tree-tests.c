@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2015 Facebook.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public
- * License v2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public
- * License along with this program; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 021110-1307, USA.
  */
 
 #include <linux/types.h>
@@ -81,7 +68,7 @@ static int __check_free_space_extents(struct btrfs_trans_handle *trans,
 					i++;
 				}
 				prev_bit = bit;
-				offset += cache->sectorsize;
+				offset += fs_info->sectorsize;
 			}
 		}
 		if (prev_bit == 1) {
@@ -455,14 +442,14 @@ static int run_test(test_func_t test_func, int bitmaps, u32 sectorsize,
 	struct btrfs_path *path = NULL;
 	int ret;
 
-	fs_info = btrfs_alloc_dummy_fs_info();
+	fs_info = btrfs_alloc_dummy_fs_info(nodesize, sectorsize);
 	if (!fs_info) {
 		test_msg("Couldn't allocate dummy fs info\n");
 		ret = -ENOMEM;
 		goto out;
 	}
 
-	root = btrfs_alloc_dummy_root(fs_info, sectorsize, nodesize);
+	root = btrfs_alloc_dummy_root(fs_info);
 	if (IS_ERR(root)) {
 		test_msg("Couldn't allocate dummy root\n");
 		ret = PTR_ERR(root);
@@ -474,8 +461,7 @@ static int run_test(test_func_t test_func, int bitmaps, u32 sectorsize,
 	root->fs_info->free_space_root = root;
 	root->fs_info->tree_root = root;
 
-	root->node = alloc_test_extent_buffer(root->fs_info,
-		nodesize, nodesize);
+	root->node = alloc_test_extent_buffer(root->fs_info, nodesize);
 	if (!root->node) {
 		test_msg("Couldn't allocate dummy buffer\n");
 		ret = -ENOMEM;
@@ -485,7 +471,7 @@ static int run_test(test_func_t test_func, int bitmaps, u32 sectorsize,
 	btrfs_set_header_nritems(root->node, 0);
 	root->alloc_bytenr += 2 * nodesize;
 
-	cache = btrfs_alloc_dummy_block_group(8 * alignment, sectorsize);
+	cache = btrfs_alloc_dummy_block_group(fs_info, 8 * alignment);
 	if (!cache) {
 		test_msg("Couldn't allocate dummy block group cache\n");
 		ret = -ENOMEM;
@@ -501,7 +487,8 @@ static int run_test(test_func_t test_func, int bitmaps, u32 sectorsize,
 	path = btrfs_alloc_path();
 	if (!path) {
 		test_msg("Couldn't allocate path\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	ret = add_block_group_free_space(&trans, root->fs_info, cache);

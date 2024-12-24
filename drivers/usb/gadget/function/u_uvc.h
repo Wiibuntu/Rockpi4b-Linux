@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * u_uvc.h
  *
@@ -7,10 +8,6 @@
  *		http://www.samsung.com
  *
  * Author: Andrzej Pietrasiewicz <andrzej.p@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef U_UVC_H
@@ -20,11 +17,9 @@
 #include <linux/usb/video.h>
 
 #define fi_to_f_uvc_opts(f)	container_of(f, struct f_uvc_opts, func_inst)
-DECLARE_UVC_EXTENSION_UNIT_DESCRIPTOR(1, 1);
 
 struct f_uvc_opts {
 	struct usb_function_instance			func_inst;
-	bool						streaming_bulk;
 	unsigned int					uvc_gadget_trace_param;
 	unsigned int					streaming_interval;
 	unsigned int					streaming_maxpacket;
@@ -53,7 +48,6 @@ struct f_uvc_opts {
 	struct uvc_camera_terminal_descriptor		uvc_camera_terminal;
 	struct uvc_processing_unit_descriptor		uvc_processing;
 	struct uvc_output_terminal_descriptor		uvc_output_terminal;
-	struct UVC_EXTENSION_UNIT_DESCRIPTOR(1, 1)	uvc_extension;
 	struct uvc_color_matching_descriptor		uvc_color_matching;
 
 	/*
@@ -63,8 +57,8 @@ struct f_uvc_opts {
 	 * descriptors. Used by configfs only, must not be touched by legacy
 	 * gadgets.
 	 */
-	struct uvc_descriptor_header			*uvc_fs_control_cls[6];
-	struct uvc_descriptor_header			*uvc_ss_control_cls[6];
+	struct uvc_descriptor_header			*uvc_fs_control_cls[5];
+	struct uvc_descriptor_header			*uvc_ss_control_cls[5];
 
 	/*
 	 * Streaming descriptors for full-speed, high-speed and super-speed.

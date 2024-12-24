@@ -70,7 +70,7 @@ static int lpc32xx_rtc_read_time(struct device *dev, struct rtc_time *time)
 	elapsed_sec = rtc_readl(rtc, LPC32XX_RTC_UCOUNT);
 	rtc_time_to_tm(elapsed_sec, time);
 
-	return rtc_valid_tm(time);
+	return 0;
 }
 
 static int lpc32xx_rtc_set_mmss(struct device *dev, unsigned long secs)
@@ -205,7 +205,7 @@ static int lpc32xx_rtc_probe(struct platform_device *pdev)
 	u32 tmp;
 
 	rtcirq = platform_get_irq(pdev, 0);
-	if (rtcirq < 0 || rtcirq >= NR_IRQS) {
+	if (rtcirq < 0) {
 		dev_warn(&pdev->dev, "Can't get interrupt resource\n");
 		rtcirq = -1;
 	}

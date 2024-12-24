@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * ipmi_watchdog.c
  *
@@ -8,27 +9,6 @@
  *         source@mvista.com
  *
  * Copyright 2002 MontaVista Software Inc.
- *
- *  This program is free software; you can redistribute it and/or modify it
- *  under the terms of the GNU General Public License as published by the
- *  Free Software Foundation; either version 2 of the License, or (at your
- *  option) any later version.
- *
- *
- *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
- *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
- *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
- *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
- *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/module.h>
@@ -43,7 +23,7 @@
 #include <linux/kdebug.h>
 #include <linux/rwsem.h>
 #include <linux/errno.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/notifier.h>
 #include <linux/nmi.h>
 #include <linux/reboot.h>
@@ -53,6 +33,7 @@
 #include <linux/ctype.h>
 #include <linux/delay.h>
 #include <linux/atomic.h>
+#include <linux/sched/signal.h>
 
 #ifdef CONFIG_X86
 /*
@@ -231,7 +212,7 @@ static int set_param_str(const char *val, const struct kernel_param *kp)
 	char       valcp[16];
 	char       *s;
 
-	strncpy(valcp, val, 16);
+	strncpy(valcp, val, 15);
 	valcp[15] = '\0';
 
 	s = strstrip(valcp);
@@ -297,7 +278,7 @@ module_param(pretimeout, timeout, 0644);
 MODULE_PARM_DESC(pretimeout, "Pretimeout value in seconds.");
 
 module_param(panic_wdt_timeout, timeout, 0644);
-MODULE_PARM_DESC(timeout, "Timeout value on kernel panic in seconds.");
+MODULE_PARM_DESC(panic_wdt_timeout, "Timeout value on kernel panic in seconds.");
 
 module_param_cb(action, &param_ops_str, action_op, 0644);
 MODULE_PARM_DESC(action, "Timeout action. One of: "
@@ -820,7 +801,7 @@ static ssize_t ipmi_read(struct file *file,
 			 loff_t      *ppos)
 {
 	int          rv = 0;
-	wait_queue_t wait;
+	wait_queue_entry_t wait;
 
 	if (count <= 0)
 		return 0;
@@ -886,15 +867,15 @@ static int ipmi_open(struct inode *ino, struct file *filep)
 	}
 }
 
-static unsigned int ipmi_poll(struct file *file, poll_table *wait)
+static __poll_t ipmi_poll(struct file *file, poll_table *wait)
 {
-	unsigned int mask = 0;
+	__poll_t mask = 0;
 
 	poll_wait(file, &read_q, wait);
 
 	spin_lock(&ipmi_read_lock);
 	if (data_to_read)
-		mask |= (POLLIN | POLLRDNORM);
+		mask |= (EPOLLIN | EPOLLRDNORM);
 	spin_unlock(&ipmi_read_lock);
 
 	return mask;
@@ -985,7 +966,7 @@ static void ipmi_wdog_pretimeout_handler(void *handler_data)
 	pretimeout_since_last_heartbeat = 1;
 }
 
-static struct ipmi_user_hndl ipmi_hndlrs = {
+static const struct ipmi_user_hndl ipmi_hndlrs = {
 	.ipmi_recv_hndl           = ipmi_wdog_msg_handler,
 	.ipmi_watchdog_pretimeout = ipmi_wdog_pretimeout_handler
 };
@@ -1008,9 +989,14 @@ static void ipmi_register_watchdog(int ipmi_intf)
 		goto out;
 	}
 
-	ipmi_get_version(watchdog_user,
-			 &ipmi_version_major,
-			 &ipmi_version_minor);
+	rv = ipmi_get_version(watchdog_user,
+			      &ipmi_version_major,
+			      &ipmi_version_minor);
+	if (rv) {
+		pr_warn(PFX "Unable to get IPMI version, assuming 1.0\n");
+		ipmi_version_major = 1;
+		ipmi_version_minor = 0;
+	}
 
 	rv = misc_register(&ipmi_wdog_miscdev);
 	if (rv < 0) {
@@ -1140,7 +1126,7 @@ ipmi_nmi(unsigned int val, struct pt_regs *regs)
 		   the timer.   So do so. */
 		pretimeout_since_last_heartbeat = 1;
 		if (atomic_inc_and_test(&preop_panic_excl))
-			panic(PFX "pre-timeout");
+			nmi_panic(regs, PFX "pre-timeout");
 	}
 
 	return NMI_HANDLED;

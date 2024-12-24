@@ -206,8 +206,8 @@ static int berlin_pinctrl_add_function(struct berlin_pinctrl *pctrl,
 static int berlin_pinctrl_build_state(struct platform_device *pdev)
 {
 	struct berlin_pinctrl *pctrl = platform_get_drvdata(pdev);
-	struct berlin_desc_group const *desc_group;
-	struct berlin_desc_function const *desc_function;
+	const struct berlin_desc_group *desc_group;
+	const struct berlin_desc_function *desc_function;
 	int i, max_functions = 0;
 
 	pctrl->nfunctions = 0;
@@ -316,7 +316,8 @@ int berlin_pinctrl_probe_regmap(struct platform_device *pdev,
 		return ret;
 	}
 
-	pctrl->pctrl_dev = pinctrl_register(&berlin_pctrl_desc, dev, pctrl);
+	pctrl->pctrl_dev = devm_pinctrl_register(dev, &berlin_pctrl_desc,
+						 pctrl);
 	if (IS_ERR(pctrl->pctrl_dev)) {
 		dev_err(dev, "failed to register pinctrl driver\n");
 		return PTR_ERR(pctrl->pctrl_dev);

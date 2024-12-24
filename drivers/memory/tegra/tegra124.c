@@ -999,14 +999,30 @@ static const struct tegra_smmu_swgroup tegra124_swgroups[] = {
 	{ .name = "vi",        .swgroup = TEGRA_SWGROUP_VI,        .reg = 0x280 },
 };
 
+static const unsigned int tegra124_group_display[] = {
+	TEGRA_SWGROUP_DC,
+	TEGRA_SWGROUP_DCB,
+};
+
+static const struct tegra_smmu_group_soc tegra124_groups[] = {
+	{
+		.name = "display",
+		.swgroups = tegra124_group_display,
+		.num_swgroups = ARRAY_SIZE(tegra124_group_display),
+	},
+};
+
 #ifdef CONFIG_ARCH_TEGRA_124_SOC
 static const struct tegra_smmu_soc tegra124_smmu_soc = {
 	.clients = tegra124_mc_clients,
 	.num_clients = ARRAY_SIZE(tegra124_mc_clients),
 	.swgroups = tegra124_swgroups,
 	.num_swgroups = ARRAY_SIZE(tegra124_swgroups),
+	.groups = tegra124_groups,
+	.num_groups = ARRAY_SIZE(tegra124_groups),
 	.supports_round_robin_arbitration = true,
 	.supports_request_limit = true,
+	.num_tlb_lines = 32,
 	.num_asids = 128,
 };
 
@@ -1019,9 +1035,6 @@ const struct tegra_mc_soc tegra124_mc_soc = {
 	.smmu = &tegra124_smmu_soc,
 	.emem_regs = tegra124_mc_emem_regs,
 	.num_emem_regs = ARRAY_SIZE(tegra124_mc_emem_regs),
-	.intmask = MC_INT_DECERR_MTS | MC_INT_SECERR_SEC | MC_INT_DECERR_VPR |
-		   MC_INT_INVALID_APB_ASID_UPDATE | MC_INT_INVALID_SMMU_PAGE |
-		   MC_INT_SECURITY_VIOLATION | MC_INT_DECERR_EMEM,
 };
 #endif /* CONFIG_ARCH_TEGRA_124_SOC */
 
@@ -1031,6 +1044,8 @@ static const struct tegra_smmu_soc tegra132_smmu_soc = {
 	.num_clients = ARRAY_SIZE(tegra124_mc_clients),
 	.swgroups = tegra124_swgroups,
 	.num_swgroups = ARRAY_SIZE(tegra124_swgroups),
+	.groups = tegra124_groups,
+	.num_groups = ARRAY_SIZE(tegra124_groups),
 	.supports_round_robin_arbitration = true,
 	.supports_request_limit = true,
 	.num_tlb_lines = 32,
@@ -1044,8 +1059,5 @@ const struct tegra_mc_soc tegra132_mc_soc = {
 	.atom_size = 32,
 	.client_id_mask = 0x7f,
 	.smmu = &tegra132_smmu_soc,
-	.intmask = MC_INT_DECERR_MTS | MC_INT_SECERR_SEC | MC_INT_DECERR_VPR |
-		   MC_INT_INVALID_APB_ASID_UPDATE | MC_INT_INVALID_SMMU_PAGE |
-		   MC_INT_SECURITY_VIOLATION | MC_INT_DECERR_EMEM,
 };
 #endif /* CONFIG_ARCH_TEGRA_132_SOC */

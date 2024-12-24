@@ -293,8 +293,8 @@ err_alloc:
 }
 
 static int create_constraints(struct powercap_zone *power_zone,
-				int nr_constraints,
-				struct powercap_zone_constraint_ops *const_ops)
+			int nr_constraints,
+			const struct powercap_zone_constraint_ops *const_ops)
 {
 	int i;
 	int ret = 0;
@@ -492,13 +492,13 @@ static struct class powercap_class = {
 };
 
 struct powercap_zone *powercap_register_zone(
-				struct powercap_zone *power_zone,
-				struct powercap_control_type *control_type,
-				const char *name,
-				struct powercap_zone *parent,
-				const struct powercap_zone_ops *ops,
-				int nr_constraints,
-				struct powercap_zone_constraint_ops *const_ops)
+			struct powercap_zone *power_zone,
+			struct powercap_control_type *control_type,
+			const char *name,
+			struct powercap_zone *parent,
+			const struct powercap_zone_ops *ops,
+			int nr_constraints,
+			const struct powercap_zone_constraint_ops *const_ops)
 {
 	int result;
 	int nr_attrs;
@@ -673,15 +673,13 @@ EXPORT_SYMBOL_GPL(powercap_unregister_control_type);
 
 static int __init powercap_init(void)
 {
-	int result = 0;
+	int result;
 
 	result = seed_constraint_attributes();
 	if (result)
 		return result;
 
-	result = class_register(&powercap_class);
-
-	return result;
+	return class_register(&powercap_class);
 }
 
 device_initcall(powercap_init);

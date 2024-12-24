@@ -104,6 +104,33 @@ int unregister_reboot_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL(unregister_reboot_notifier);
 
+static void devm_unregister_reboot_notifier(struct device *dev, void *res)
+{
+	WARN_ON(unregister_reboot_notifier(*(struct notifier_block **)res));
+}
+
+int devm_register_reboot_notifier(struct device *dev, struct notifier_block *nb)
+{
+	struct notifier_block **rcnb;
+	int ret;
+
+	rcnb = devres_alloc(devm_unregister_reboot_notifier,
+			    sizeof(*rcnb), GFP_KERNEL);
+	if (!rcnb)
+		return -ENOMEM;
+
+	ret = register_reboot_notifier(nb);
+	if (!ret) {
+		*rcnb = nb;
+		devres_add(dev, rcnb);
+	} else {
+		devres_free(rcnb);
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(devm_register_reboot_notifier);
+
 /*
  *	Notifier list for kernel code which wants to be called
  *	to restart the system.
@@ -183,25 +210,6 @@ EXPORT_SYMBOL(unregister_restart_handler);
 void do_kernel_restart(char *cmd)
 {
 	atomic_notifier_call_chain(&restart_handler_list, reboot_mode, cmd);
-}
-
-static ATOMIC_NOTIFIER_HEAD(i2c_restart_handler_list);
-
-int register_i2c_restart_handler(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_register(&i2c_restart_handler_list, nb);
-}
-EXPORT_SYMBOL(register_i2c_restart_handler);
-
-int unregister_i2c_restart_handler(struct notifier_block *nb)
-{
-	return atomic_notifier_chain_unregister(&i2c_restart_handler_list, nb);
-}
-EXPORT_SYMBOL(unregister_i2c_restart_handler);
-
-void do_kernel_i2c_restart(char *cmd)
-{
-	atomic_notifier_call_chain(&i2c_restart_handler_list, reboot_mode, cmd);
 }
 
 void migrate_to_reboot_cpu(void)

@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * f_audio.c -- USB Audio class function driver
   *
  * Copyright (C) 2008 Bryan Wu <cooloney@kernel.org>
  * Copyright (C) 2008 Analog Devices, Inc
- *
- * Enter bugs at http://blackfin.uclinux.org/
- *
- * Licensed under the GPL-2 or later.
  */
 
 #include <linux/slab.h>
@@ -671,11 +668,6 @@ static int f_audio_get_alt(struct usb_function *f, unsigned intf)
 
 static void f_audio_disable(struct usb_function *f)
 {
-	struct f_audio *audio = func_to_audio(f);
-	struct usb_ep *out_ep = audio->out_ep;
-
-	usb_ep_disable(out_ep);
-
 	return;
 }
 
@@ -763,7 +755,8 @@ f_audio_bind(struct usb_configuration *c, struct usb_function *f)
 	status = -ENOMEM;
 
 	/* copy descriptors, and track endpoint copies */
-	status = usb_assign_descriptors(f, f_audio_desc, f_audio_desc, NULL);
+	status = usb_assign_descriptors(f, f_audio_desc, f_audio_desc, NULL,
+					NULL);
 	if (status)
 		goto fail;
 	return 0;
@@ -925,7 +918,7 @@ static struct configfs_attribute *f_uac1_attrs[] = {
 	NULL,
 };
 
-static struct config_item_type f_uac1_func_type = {
+static const struct config_item_type f_uac1_func_type = {
 	.ct_item_ops	= &f_uac1_item_ops,
 	.ct_attrs	= f_uac1_attrs,
 	.ct_owner	= THIS_MODULE,
@@ -975,7 +968,6 @@ static void f_audio_free(struct usb_function *f)
 
 	gaudio_cleanup(&audio->card);
 	opts = container_of(f->fi, struct f_uac1_legacy_opts, func_inst);
-	opts->bound = false;
 	kfree(audio);
 	mutex_lock(&opts->lock);
 	--opts->refcnt;

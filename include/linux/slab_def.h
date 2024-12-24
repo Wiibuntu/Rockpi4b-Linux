@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_SLAB_DEF_H
 #define	_LINUX_SLAB_DEF_H
 
@@ -19,7 +20,7 @@ struct kmem_cache {
 	struct reciprocal_value reciprocal_buffer_size;
 /* 2) touched by every alloc & free from the backend */
 
-	unsigned int flags;		/* constant flags */
+	slab_flags_t flags;		/* constant flags */
 	unsigned int num;		/* # of objs per slab */
 
 /* 3) cache_grow/shrink */
@@ -72,12 +73,20 @@ struct kmem_cache {
 	 */
 	int obj_offset;
 #endif /* CONFIG_DEBUG_SLAB */
-#ifdef CONFIG_MEMCG_KMEM
+
+#ifdef CONFIG_MEMCG
 	struct memcg_cache_params memcg_params;
 #endif
 #ifdef CONFIG_KASAN
 	struct kasan_cache kasan_info;
 #endif
+
+#ifdef CONFIG_SLAB_FREELIST_RANDOM
+	unsigned int *random_seq;
+#endif
+
+	unsigned int useroffset;	/* Usercopy region offset */
+	unsigned int usersize;		/* Usercopy region size */
 
 	struct kmem_cache_node *node[MAX_NUMNODES];
 };

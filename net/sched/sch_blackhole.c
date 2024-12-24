@@ -17,10 +17,11 @@
 #include <linux/skbuff.h>
 #include <net/pkt_sched.h>
 
-static int blackhole_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+static int blackhole_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+			     struct sk_buff **to_free)
 {
-	qdisc_drop(skb, sch);
-	return NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
+	qdisc_drop(skb, sch, to_free);
+	return NET_XMIT_SUCCESS;
 }
 
 static struct sk_buff *blackhole_dequeue(struct Qdisc *sch)

@@ -1,16 +1,8 @@
 /*
+ * SPDX-License-Identifier: GPL-2.0
  * Remote Controller core raw events header
  *
  * Copyright (C) 2010 by Mauro Carvalho Chehab
- *
- * This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation version 2 of the License.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
  */
 
 #ifndef _RC_CORE_PRIV
@@ -45,7 +37,6 @@ struct ir_raw_handler {
 	int (*encode)(enum rc_proto protocol, u32 scancode,
 		      struct ir_raw_event *events, unsigned int max);
 	u32 carrier;
-	u32 min_timeout;
 
 	/* These two should only be used by the mce kbd decoder */
 	int (*raw_register)(struct rc_dev *dev);
@@ -112,9 +103,10 @@ struct ir_raw_event_ctrl {
 		unsigned int pulse_len;
 	} sharp;
 	struct mce_kbd_dec {
-		/* locks key up timer */
-		spinlock_t keylock;
+		struct input_dev *idev;
 		struct timer_list rx_timeout;
+		char name[64];
+		char phys[64];
 		int state;
 		u8 header;
 		u32 body;
@@ -131,7 +123,6 @@ struct ir_raw_event_ctrl {
 		int count;
 		int last_chk;
 		unsigned int bits;
-		bool stick_keyboard;
 	} imon;
 };
 
@@ -175,10 +166,9 @@ static inline void init_ir_raw_event_duration(struct ir_raw_event *ev,
 					      unsigned int pulse,
 					      u32 duration)
 {
-	*ev = (struct ir_raw_event) {
-		.duration = duration,
-		.pulse = pulse
-	};
+	init_ir_raw_event(ev);
+	ev->duration = duration;
+	ev->pulse = pulse;
 }
 
 /**

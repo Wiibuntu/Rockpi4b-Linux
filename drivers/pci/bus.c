@@ -1,6 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- *	drivers/pci/bus.c
- *
  * From setup-res.c, by:
  *	Dave Rusling (david.rusling@reo.mts.dec.com)
  *	David Mosberger (davidm@cs.arizona.edu)
@@ -289,7 +288,7 @@ bool pci_bus_clip_resource(struct pci_dev *dev, int idx)
 		res->end = end;
 		res->flags &= ~IORESOURCE_UNSET;
 		orig_res.flags &= ~IORESOURCE_UNSET;
-		dev_printk(KERN_DEBUG, &dev->dev, "%pR clipped to %pR\n",
+		pci_printk(KERN_DEBUG, dev, "%pR clipped to %pR\n",
 				 &orig_res, res);
 
 		return true;
@@ -299,6 +298,8 @@ bool pci_bus_clip_resource(struct pci_dev *dev, int idx)
 }
 
 void __weak pcibios_resource_survey_bus(struct pci_bus *bus) { }
+
+void __weak pcibios_bus_add_device(struct pci_dev *pdev) { }
 
 /**
  * pci_bus_add_device - start driver for a single device
@@ -314,13 +315,20 @@ void pci_bus_add_device(struct pci_dev *dev)
 	 * Can not put in pci_device_add yet because resources
 	 * are not assigned yet for some devices.
 	 */
+	pcibios_bus_add_device(dev);
 	pci_fixup_device(pci_fixup_final, dev);
 	pci_create_sysfs_dev_files(dev);
 	pci_proc_attach_device(dev);
+	pci_bridge_d3_update(dev);
 
 	dev->match_driver = true;
 	retval = device_attach(&dev->dev);
-	WARN_ON(retval < 0);
+	if (retval < 0 && retval != -EPROBE_DEFER) {
+		pci_warn(dev, "device attach failed (%d)\n", retval);
+		pci_proc_detach_device(dev);
+		pci_remove_sysfs_dev_files(dev);
+		return;
+	}
 
 	dev->is_added = 1;
 }
@@ -345,7 +353,9 @@ void pci_bus_add_devices(const struct pci_bus *bus)
 	}
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
-		BUG_ON(!dev->is_added);
+		/* Skip if device attach failed */
+		if (!dev->is_added)
+			continue;
 		child = dev->subordinate;
 		if (child)
 			pci_bus_add_devices(child);

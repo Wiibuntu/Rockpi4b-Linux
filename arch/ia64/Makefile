@@ -42,7 +42,7 @@ $(error Sorry, you need a newer version of the assember, one that is built from	
 endif
 
 KBUILD_CFLAGS += $(cflags-y)
-head-y := arch/ia64/kernel/head.o arch/ia64/kernel/init_task.o
+head-y := arch/ia64/kernel/head.o
 
 libs-y				+= arch/ia64/lib/
 core-y				+= arch/ia64/kernel/ arch/ia64/mm/
@@ -96,7 +96,7 @@ define archhelp
 endef
 
 archprepare: make_nr_irqs_h
-PHONY += make_nr_irqs_h FORCE
+PHONY += make_nr_irqs_h
 
 make_nr_irqs_h:
 	$(Q)$(MAKE) $(build)=arch/ia64/kernel include/generated/nr-irqs.h

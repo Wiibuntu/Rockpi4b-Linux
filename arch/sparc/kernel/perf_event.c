@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* Performance event support for sparc64.
  *
  * Copyright (C) 2009, 2010 David S. Miller <davem@davemloft.net>
@@ -926,8 +927,6 @@ static void read_in_all_counters(struct cpu_hw_events *cpuc)
 			sparc_perf_event_update(cp, &cp->hw,
 						cpuc->current_idx[i]);
 			cpuc->current_idx[i] = PIC_NO_INDEX;
-			if (cp->hw.state & PERF_HES_STOPPED)
-				cp->hw.state |= PERF_HES_ARCH;
 		}
 	}
 }
@@ -960,12 +959,10 @@ static void calculate_single_pcr(struct cpu_hw_events *cpuc)
 
 		enc = perf_event_get_enc(cpuc->events[i]);
 		cpuc->pcr[0] &= ~mask_for_index(idx);
-		if (hwc->state & PERF_HES_ARCH) {
+		if (hwc->state & PERF_HES_STOPPED)
 			cpuc->pcr[0] |= nop_for_index(idx);
-		} else {
+		else
 			cpuc->pcr[0] |= event_encoding(enc, idx);
-			hwc->state = 0;
-		}
 	}
 out:
 	cpuc->pcr[0] |= cpuc->event[0]->hw.config_base;
@@ -990,9 +987,6 @@ static void calculate_multiple_pcrs(struct cpu_hw_events *cpuc)
 			continue;
 
 		cpuc->current_idx[i] = idx;
-
-		if (cp->hw.state & PERF_HES_ARCH)
-			continue;
 
 		sparc_pmu_start(cp, PERF_EF_RELOAD);
 	}
@@ -1085,8 +1079,6 @@ static void sparc_pmu_start(struct perf_event *event, int flags)
 	event->hw.state = 0;
 
 	sparc_pmu_enable_event(cpuc, &event->hw, idx);
-
-	perf_event_update_userpage(event);
 }
 
 static void sparc_pmu_stop(struct perf_event *event, int flags)
@@ -1350,7 +1342,7 @@ static int collect_events(struct perf_event *group, int max_count,
 		events[n] = group->hw.event_base;
 		current_idx[n++] = PIC_NO_INDEX;
 	}
-	list_for_each_entry(event, &group->sibling_list, group_entry) {
+	for_each_sibling_event(event, group) {
 		if (!is_software_event(event) &&
 		    event->state != PERF_EVENT_STATE_OFF) {
 			if (n >= max_count)
@@ -1379,9 +1371,9 @@ static int sparc_pmu_add(struct perf_event *event, int ef_flags)
 	cpuc->events[n0] = event->hw.event_base;
 	cpuc->current_idx[n0] = PIC_NO_INDEX;
 
-	event->hw.state = PERF_HES_UPTODATE | PERF_HES_STOPPED;
+	event->hw.state = PERF_HES_UPTODATE;
 	if (!(ef_flags & PERF_EF_START))
-		event->hw.state |= PERF_HES_ARCH;
+		event->hw.state |= PERF_HES_STOPPED;
 
 	/*
 	 * If group events scheduling transaction was started,
@@ -1720,7 +1712,7 @@ static int __init init_hw_perf_events(void)
 }
 pure_initcall(init_hw_perf_events);
 
-void perf_callchain_kernel(struct perf_callchain_entry *entry,
+void perf_callchain_kernel(struct perf_callchain_entry_ctx *entry,
 			   struct pt_regs *regs)
 {
 	unsigned long ksp, fp;
@@ -1765,7 +1757,7 @@ void perf_callchain_kernel(struct perf_callchain_entry *entry,
 			}
 		}
 #endif
-	} while (entry->nr < PERF_MAX_STACK_DEPTH);
+	} while (entry->nr < entry->max_stack);
 }
 
 static inline int
@@ -1778,7 +1770,7 @@ valid_user_frame(const void __user *fp, unsigned long size)
 	return (__range_not_ok(fp, size, TASK_SIZE) == 0);
 }
 
-static void perf_callchain_user_64(struct perf_callchain_entry *entry,
+static void perf_callchain_user_64(struct perf_callchain_entry_ctx *entry,
 				   struct pt_regs *regs)
 {
 	unsigned long ufp;
@@ -1799,10 +1791,10 @@ static void perf_callchain_user_64(struct perf_callchain_entry *entry,
 		pc = sf.callers_pc;
 		ufp = (unsigned long)sf.fp + STACK_BIAS;
 		perf_callchain_store(entry, pc);
-	} while (entry->nr < PERF_MAX_STACK_DEPTH);
+	} while (entry->nr < entry->max_stack);
 }
 
-static void perf_callchain_user_32(struct perf_callchain_entry *entry,
+static void perf_callchain_user_32(struct perf_callchain_entry_ctx *entry,
 				   struct pt_regs *regs)
 {
 	unsigned long ufp;
@@ -1831,11 +1823,11 @@ static void perf_callchain_user_32(struct perf_callchain_entry *entry,
 			ufp = (unsigned long)sf.fp;
 		}
 		perf_callchain_store(entry, pc);
-	} while (entry->nr < PERF_MAX_STACK_DEPTH);
+	} while (entry->nr < entry->max_stack);
 }
 
 void
-perf_callchain_user(struct perf_callchain_entry *entry, struct pt_regs *regs)
+perf_callchain_user(struct perf_callchain_entry_ctx *entry, struct pt_regs *regs)
 {
 	u64 saved_fault_address = current_thread_info()->fault_address;
 	u8 saved_fault_code = get_thread_fault_code();

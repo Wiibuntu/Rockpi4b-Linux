@@ -16,7 +16,6 @@
 
 #include <linux/delay.h>
 #include <linux/device.h>
-#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/tee_drv.h>
 #include "optee_private.h"

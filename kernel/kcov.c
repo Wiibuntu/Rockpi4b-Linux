@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #define pr_fmt(fmt) "kcov: " fmt
 
 #define DISABLE_BRANCH_PROFILING
@@ -357,7 +358,8 @@ static int kcov_ioctl_locked(struct kcov *kcov, unsigned int cmd,
 		 */
 		if (kcov->mode != KCOV_MODE_INIT || !kcov->area)
 			return -EINVAL;
-		if (kcov->t != NULL)
+		t = current;
+		if (kcov->t != NULL || t->kcov != NULL)
 			return -EBUSY;
 		if (arg == KCOV_TRACE_PC)
 			kcov->mode = KCOV_MODE_TRACE_PC;
@@ -369,7 +371,6 @@ static int kcov_ioctl_locked(struct kcov *kcov, unsigned int cmd,
 #endif
 		else
 			return -EINVAL;
-		t = current;
 		/* Cache in task struct for performance. */
 		t->kcov_size = kcov->size;
 		t->kcov_area = kcov->area;
@@ -421,7 +422,12 @@ static const struct file_operations kcov_fops = {
 
 static int __init kcov_init(void)
 {
-	if (!debugfs_create_file("kcov", 0600, NULL, NULL, &kcov_fops)) {
+	/*
+	 * The kcov debugfs file won't ever get removed and thus,
+	 * there is no need to protect it against removal races. The
+	 * use of debugfs_create_file_unsafe() is actually safe here.
+	 */
+	if (!debugfs_create_file_unsafe("kcov", 0600, NULL, NULL, &kcov_fops)) {
 		pr_err("failed to create kcov in debugfs\n");
 		return -ENOMEM;
 	}

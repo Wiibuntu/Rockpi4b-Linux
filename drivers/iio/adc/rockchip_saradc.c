@@ -55,7 +55,6 @@ struct rockchip_saradc {
 	struct clk		*clk;
 	struct completion	completion;
 	struct regulator	*vref;
-	int			uv_vref;
 	struct reset_control	*reset;
 	const struct rockchip_saradc_data *data;
 	u16			last_val;
@@ -66,6 +65,7 @@ static int rockchip_saradc_read_raw(struct iio_dev *indio_dev,
 				    int *val, int *val2, long mask)
 {
 	struct rockchip_saradc *info = iio_priv(indio_dev);
+	int ret;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
@@ -93,11 +93,13 @@ static int rockchip_saradc_read_raw(struct iio_dev *indio_dev,
 		mutex_unlock(&indio_dev->mlock);
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
-		/* It is a dummy regulator */
-		if (info->uv_vref < 0)
-			return info->uv_vref;
+		ret = regulator_get_voltage(info->vref);
+		if (ret < 0) {
+			dev_err(&indio_dev->dev, "failed to get voltage\n");
+			return ret;
+		}
 
-		*val = info->uv_vref / 1000;
+		*val = ret / 1000;
 		*val2 = info->data->num_bits;
 		return IIO_VAL_FRACTIONAL_LOG2;
 	default:
@@ -107,7 +109,7 @@ static int rockchip_saradc_read_raw(struct iio_dev *indio_dev,
 
 static irqreturn_t rockchip_saradc_isr(int irq, void *dev_id)
 {
-	struct rockchip_saradc *info = (struct rockchip_saradc *)dev_id;
+	struct rockchip_saradc *info = dev_id;
 
 	/* Read value */
 	info->last_val = readl_relaxed(info->regs + SARADC_DATA);
@@ -123,7 +125,6 @@ static irqreturn_t rockchip_saradc_isr(int irq, void *dev_id)
 
 static const struct iio_info rockchip_saradc_iio_info = {
 	.read_raw = rockchip_saradc_read_raw,
-	.driver_module = THIS_MODULE,
 };
 
 #define ADC_CHANNEL(_index, _id) {				\
@@ -222,6 +223,11 @@ static int rockchip_saradc_probe(struct platform_device *pdev)
 	info = iio_priv(indio_dev);
 
 	match = of_match_device(rockchip_saradc_match, &pdev->dev);
+	if (!match) {
+		dev_err(&pdev->dev, "failed to match device\n");
+		return -ENODEV;
+	}
+
 	info->data = match->data;
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -233,7 +239,8 @@ static int rockchip_saradc_probe(struct platform_device *pdev)
 	 * The reset should be an optional property, as it should work
 	 * with old devicetrees as well
 	 */
-	info->reset = devm_reset_control_get(&pdev->dev, "saradc-apb");
+	info->reset = devm_reset_control_get_exclusive(&pdev->dev,
+						       "saradc-apb");
 	if (IS_ERR(info->reset)) {
 		ret = PTR_ERR(info->reset);
 		if (ret != -ENOENT)
@@ -295,8 +302,6 @@ static int rockchip_saradc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to enable vref regulator\n");
 		return ret;
 	}
-
-	info->uv_vref = regulator_get_voltage(info->vref);
 
 	ret = clk_prepare_enable(info->pclk);
 	if (ret < 0) {

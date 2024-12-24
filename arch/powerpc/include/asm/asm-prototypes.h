@@ -13,11 +13,12 @@
  */
 
 #include <linux/threads.h>
-#include <linux/kprobes.h>
 #include <asm/cacheflush.h>
 #include <asm/checksum.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/epapr_hcalls.h>
+#include <asm/dcr.h>
+#include <asm/mmu_context.h>
 
 #include <uapi/asm/ucontext.h>
 
@@ -61,6 +62,7 @@ void RunModeException(struct pt_regs *regs);
 void single_step_exception(struct pt_regs *regs);
 void program_check_exception(struct pt_regs *regs);
 void alignment_exception(struct pt_regs *regs);
+void slb_miss_bad_addr(struct pt_regs *regs);
 void StackOverflow(struct pt_regs *regs);
 void nonrecoverable_exception(struct pt_regs *regs);
 void kernel_fp_unavailable_exception(struct pt_regs *regs);
@@ -87,7 +89,18 @@ int sys_swapcontext(struct ucontext __user *old_ctx,
 long sys_swapcontext(struct ucontext __user *old_ctx,
 		    struct ucontext __user *new_ctx,
 		    int ctx_size, int r6, int r7, int r8, struct pt_regs *regs);
+int sys_debug_setcontext(struct ucontext __user *ctx,
+			 int ndbg, struct sig_dbg_op __user *dbg,
+			 int r6, int r7, int r8,
+			 struct pt_regs *regs);
+int
+ppc_select(int n, fd_set __user *inp, fd_set __user *outp, fd_set __user *exp, struct timeval __user *tvp);
+unsigned long __init early_init(unsigned long dt_ptr);
+void __init machine_init(u64 dt_ptr);
 #endif
+
+long ppc_fadvise64_64(int fd, int advice, u32 offset_high, u32 offset_low,
+		      u32 len_high, u32 len_low);
 long sys_switch_endian(void);
 notrace unsigned int __check_irq_replay(void);
 void notrace restore_interrupts(void);
@@ -120,5 +133,12 @@ extern s64 __ashldi3(s64, int);
 extern s64 __ashrdi3(s64, int);
 extern int __cmpdi2(s64, s64);
 extern int __ucmpdi2(u64, u64);
+
+/* tracing */
+void _mcount(void);
+unsigned long prepare_ftrace_return(unsigned long parent, unsigned long ip);
+
+void pnv_power9_force_smt4_catch(void);
+void pnv_power9_force_smt4_release(void);
 
 #endif /* _ASM_POWERPC_ASM_PROTOTYPES_H */

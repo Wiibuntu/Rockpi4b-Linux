@@ -1,12 +1,9 @@
-/* Speyside modules for Cragganmore - board data probing
- *
- * Copyright 2011 Wolfson Microelectronics plc
- *	Mark Brown <broonie@opensource.wolfsonmicro.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0
+//
+// Speyside modules for Cragganmore - board data probing
+//
+// Copyright 2011 Wolfson Microelectronics plc
+//	Mark Brown <broonie@opensource.wolfsonmicro.com>
 
 #include <linux/export.h>
 #include <linux/interrupt.h>
@@ -28,6 +25,9 @@
 #include <sound/wm9081.h>
 
 #include <linux/platform_data/spi-s3c64xx.h>
+
+#include <plat/cpu.h>
+#include <mach/irqs.h>
 
 #include "crag6410.h"
 
@@ -206,7 +206,9 @@ static const struct i2c_board_info wm1277_devs[] = {
 };
 
 static struct arizona_pdata wm5102_reva_pdata = {
-	.ldoena = S3C64XX_GPN(7),
+	.ldo1 = {
+		.ldoena = S3C64XX_GPN(7),
+	},
 	.gpio_base = CODEC_GPIO_BASE,
 	.irq_flags = IRQF_TRIGGER_HIGH,
 	.micd_pol_gpio = CODEC_GPIO_BASE + 4,
@@ -236,7 +238,9 @@ static struct spi_board_info wm5102_reva_spi_devs[] = {
 };
 
 static struct arizona_pdata wm5102_pdata = {
-	.ldoena = S3C64XX_GPN(7),
+	.ldo1 = {
+		.ldoena = S3C64XX_GPN(7),
+	},
 	.gpio_base = CODEC_GPIO_BASE,
 	.irq_flags = IRQF_TRIGGER_HIGH,
 	.micd_pol_gpio = CODEC_GPIO_BASE + 2,
@@ -390,8 +394,7 @@ static const struct i2c_device_id wlf_gf_module_id[] = {
 
 static struct i2c_driver wlf_gf_module_driver = {
 	.driver = {
-		.name = "wlf-gf-module",
-		.owner = THIS_MODULE,
+		.name = "wlf-gf-module"
 	},
 	.probe = wlf_gf_module_probe,
 	.id_table = wlf_gf_module_id,
@@ -399,6 +402,9 @@ static struct i2c_driver wlf_gf_module_driver = {
 
 static int __init wlf_gf_module_register(void)
 {
+	if (!soc_is_s3c64xx())
+		return 0;
+
 	return i2c_add_driver(&wlf_gf_module_driver);
 }
 device_initcall(wlf_gf_module_register);

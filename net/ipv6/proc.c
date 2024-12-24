@@ -30,6 +30,11 @@
 #include <net/transp_v6.h>
 #include <net/ipv6.h>
 
+#define MAX4(a, b, c, d) \
+	max_t(u32, max_t(u32, a, b), max_t(u32, c, d))
+#define SNMP_MIB_MAX MAX4(UDP_MIB_MAX, TCP_MIB_MAX, \
+			IPSTATS_MIB_MAX, ICMP_MIB_MAX)
+
 static int sockstat6_seq_show(struct seq_file *seq, void *v)
 {
 	struct net *net = seq->private;
@@ -54,7 +59,6 @@ static int sockstat6_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations sockstat6_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = sockstat6_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
@@ -192,25 +196,34 @@ static void snmp6_seq_show_item(struct seq_file *seq, void __percpu *pcpumib,
 				atomic_long_t *smib,
 				const struct snmp_mib *itemlist)
 {
+	unsigned long buff[SNMP_MIB_MAX];
 	int i;
-	unsigned long val;
 
-	for (i = 0; itemlist[i].name; i++) {
-		val = pcpumib ?
-			snmp_fold_field(pcpumib, itemlist[i].entry) :
-			atomic_long_read(smib + itemlist[i].entry);
-		seq_printf(seq, "%-32s\t%lu\n", itemlist[i].name, val);
+	if (pcpumib) {
+		memset(buff, 0, sizeof(unsigned long) * SNMP_MIB_MAX);
+
+		snmp_get_cpu_field_batch(buff, itemlist, pcpumib);
+		for (i = 0; itemlist[i].name; i++)
+			seq_printf(seq, "%-32s\t%lu\n",
+				   itemlist[i].name, buff[i]);
+	} else {
+		for (i = 0; itemlist[i].name; i++)
+			seq_printf(seq, "%-32s\t%lu\n", itemlist[i].name,
+				   atomic_long_read(smib + itemlist[i].entry));
 	}
 }
 
 static void snmp6_seq_show_item64(struct seq_file *seq, void __percpu *mib,
 				  const struct snmp_mib *itemlist, size_t syncpoff)
 {
+	u64 buff64[SNMP_MIB_MAX];
 	int i;
 
+	memset(buff64, 0, sizeof(u64) * SNMP_MIB_MAX);
+
+	snmp_get_cpu_field64_batch(buff64, itemlist, mib, syncpoff);
 	for (i = 0; itemlist[i].name; i++)
-		seq_printf(seq, "%-32s\t%llu\n", itemlist[i].name,
-			   snmp_fold_field64(mib, itemlist[i].entry, syncpoff));
+		seq_printf(seq, "%-32s\t%llu\n", itemlist[i].name, buff64[i]);
 }
 
 static int snmp6_seq_show(struct seq_file *seq, void *v)
@@ -235,7 +248,6 @@ static int snmp6_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations snmp6_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = snmp6_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
@@ -261,7 +273,6 @@ static int snmp6_dev_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations snmp6_dev_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = snmp6_dev_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
@@ -280,7 +291,7 @@ int snmp6_register_dev(struct inet6_dev *idev)
 	if (!net->mib.proc_net_devsnmp6)
 		return -ENOENT;
 
-	p = proc_create_data(idev->dev->name, S_IRUGO,
+	p = proc_create_data(idev->dev->name, 0444,
 			     net->mib.proc_net_devsnmp6,
 			     &snmp6_dev_seq_fops, idev);
 	if (!p)
@@ -304,11 +315,11 @@ int snmp6_unregister_dev(struct inet6_dev *idev)
 
 static int __net_init ipv6_proc_init_net(struct net *net)
 {
-	if (!proc_create("sockstat6", S_IRUGO, net->proc_net,
+	if (!proc_create("sockstat6", 0444, net->proc_net,
 			 &sockstat6_seq_fops))
 		return -ENOMEM;
 
-	if (!proc_create("snmp6", S_IRUGO, net->proc_net, &snmp6_seq_fops))
+	if (!proc_create("snmp6", 0444, net->proc_net, &snmp6_seq_fops))
 		goto proc_snmp6_fail;
 
 	net->mib.proc_net_devsnmp6 = proc_mkdir("dev_snmp6", net->proc_net);
@@ -344,4 +355,3 @@ void ipv6_misc_proc_exit(void)
 {
 	unregister_pernet_subsys(&ipv6_proc_ops);
 }
-

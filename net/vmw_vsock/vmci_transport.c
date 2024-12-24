@@ -21,7 +21,6 @@
 #include <linux/kernel.h>
 #include <linux/kmod.h>
 #include <linux/list.h>
-#include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/net.h>
@@ -96,31 +95,23 @@ static int PROTOCOL_OVERRIDE = -1;
 
 static s32 vmci_transport_error_to_vsock_error(s32 vmci_error)
 {
-	int err;
-
 	switch (vmci_error) {
 	case VMCI_ERROR_NO_MEM:
-		err = ENOMEM;
-		break;
+		return -ENOMEM;
 	case VMCI_ERROR_DUPLICATE_ENTRY:
 	case VMCI_ERROR_ALREADY_EXISTS:
-		err = EADDRINUSE;
-		break;
+		return -EADDRINUSE;
 	case VMCI_ERROR_NO_ACCESS:
-		err = EPERM;
-		break;
+		return -EPERM;
 	case VMCI_ERROR_NO_RESOURCES:
-		err = ENOBUFS;
-		break;
+		return -ENOBUFS;
 	case VMCI_ERROR_INVALID_RESOURCE:
-		err = EHOSTUNREACH;
-		break;
+		return -EHOSTUNREACH;
 	case VMCI_ERROR_INVALID_ARGS:
 	default:
-		err = EINVAL;
+		break;
 	}
-
-	return err > 0 ? -err : err;
+	return -EINVAL;
 }
 
 static u32 vmci_transport_peer_rid(u32 peer_cid)
@@ -273,31 +264,6 @@ vmci_transport_send_control_pkt_bh(struct sockaddr_vm *src,
 }
 
 static int
-vmci_transport_alloc_send_control_pkt(struct sockaddr_vm *src,
-				      struct sockaddr_vm *dst,
-				      enum vmci_transport_packet_type type,
-				      u64 size,
-				      u64 mode,
-				      struct vmci_transport_waiting_info *wait,
-				      u16 proto,
-				      struct vmci_handle handle)
-{
-	struct vmci_transport_packet *pkt;
-	int err;
-
-	pkt = kmalloc(sizeof(*pkt), GFP_KERNEL);
-	if (!pkt)
-		return -ENOMEM;
-
-	err = __vmci_transport_send_control_pkt(pkt, src, dst, type, size,
-						mode, wait, proto, handle,
-						true);
-	kfree(pkt);
-
-	return err;
-}
-
-static int
 vmci_transport_send_control_pkt(struct sock *sk,
 				enum vmci_transport_packet_type type,
 				u64 size,
@@ -306,7 +272,9 @@ vmci_transport_send_control_pkt(struct sock *sk,
 				u16 proto,
 				struct vmci_handle handle)
 {
+	struct vmci_transport_packet *pkt;
 	struct vsock_sock *vsk;
+	int err;
 
 	vsk = vsock_sk(sk);
 
@@ -316,10 +284,17 @@ vmci_transport_send_control_pkt(struct sock *sk,
 	if (!vsock_addr_bound(&vsk->remote_addr))
 		return -EINVAL;
 
-	return vmci_transport_alloc_send_control_pkt(&vsk->local_addr,
-						     &vsk->remote_addr,
-						     type, size, mode,
-						     wait, proto, handle);
+	pkt = kmalloc(sizeof(*pkt), GFP_KERNEL);
+	if (!pkt)
+		return -ENOMEM;
+
+	err = __vmci_transport_send_control_pkt(pkt, &vsk->local_addr,
+						&vsk->remote_addr, type, size,
+						mode, wait, proto, handle,
+						true);
+	kfree(pkt);
+
+	return err;
 }
 
 static int vmci_transport_send_reset_bh(struct sockaddr_vm *dst,
@@ -337,29 +312,12 @@ static int vmci_transport_send_reset_bh(struct sockaddr_vm *dst,
 static int vmci_transport_send_reset(struct sock *sk,
 				     struct vmci_transport_packet *pkt)
 {
-	struct sockaddr_vm *dst_ptr;
-	struct sockaddr_vm dst;
-	struct vsock_sock *vsk;
-
 	if (pkt->type == VMCI_TRANSPORT_PACKET_TYPE_RST)
 		return 0;
-
-	vsk = vsock_sk(sk);
-
-	if (!vsock_addr_bound(&vsk->local_addr))
-		return -EINVAL;
-
-	if (vsock_addr_bound(&vsk->remote_addr)) {
-		dst_ptr = &vsk->remote_addr;
-	} else {
-		vsock_addr_init(&dst, pkt->dg.src.context,
-				pkt->src_port);
-		dst_ptr = &dst;
-	}
-	return vmci_transport_alloc_send_control_pkt(&vsk->local_addr, dst_ptr,
-					     VMCI_TRANSPORT_PACKET_TYPE_RST,
-					     0, 0, NULL, VSOCK_PROTO_INVALID,
-					     VMCI_INVALID_HANDLE);
+	return vmci_transport_send_control_pkt(sk,
+					VMCI_TRANSPORT_PACKET_TYPE_RST,
+					0, 0, NULL, VSOCK_PROTO_INVALID,
+					VMCI_INVALID_HANDLE);
 }
 
 static int vmci_transport_send_negotiate(struct sock *sk, size_t size)
@@ -784,7 +742,7 @@ static int vmci_transport_recv_stream_cb(void *data, struct vmci_datagram *dg)
 		/* The local context ID may be out of date, update it. */
 		vsk->local_addr.svm_cid = dst.svm_cid;
 
-		if (sk->sk_state == SS_CONNECTED)
+		if (sk->sk_state == TCP_ESTABLISHED)
 			vmci_trans(vsk)->notify_ops->handle_notify_pkt(
 					sk, pkt, true, &dst, &src,
 					&bh_process_pkt);
@@ -839,10 +797,14 @@ static void vmci_transport_handle_detach(struct sock *sk)
 
 		/* We should not be sending anymore since the peer won't be
 		 * there to receive, but we can still receive if there is data
-		 * left in our consume queue.
+		 * left in our consume queue. If the local endpoint is a host,
+		 * we can't call vsock_stream_has_data, since that may block,
+		 * but a host endpoint can't read data once the VM has
+		 * detached, so there is no available data in that case.
 		 */
-		if (vsock_stream_has_data(vsk) <= 0) {
-			if (sk->sk_state == SS_CONNECTING) {
+		if (vsk->local_addr.svm_cid == VMADDR_CID_HOST ||
+		    vsock_stream_has_data(vsk) <= 0) {
+			if (sk->sk_state == TCP_SYN_SENT) {
 				/* The peer may detach from a queue pair while
 				 * we are still in the connecting state, i.e.,
 				 * if the peer VM is killed after attaching to
@@ -851,12 +813,12 @@ static void vmci_transport_handle_detach(struct sock *sk)
 				 * event like a reset.
 				 */
 
-				sk->sk_state = SS_UNCONNECTED;
+				sk->sk_state = TCP_CLOSE;
 				sk->sk_err = ECONNRESET;
 				sk->sk_error_report(sk);
 				return;
 			}
-			sk->sk_state = SS_UNCONNECTED;
+			sk->sk_state = TCP_CLOSE;
 		}
 		sk->sk_state_change(sk);
 	}
@@ -924,17 +886,17 @@ static void vmci_transport_recv_pkt_work(struct work_struct *work)
 	vsock_sk(sk)->local_addr.svm_cid = pkt->dg.dst.context;
 
 	switch (sk->sk_state) {
-	case VSOCK_SS_LISTEN:
+	case TCP_LISTEN:
 		vmci_transport_recv_listen(sk, pkt);
 		break;
-	case SS_CONNECTING:
+	case TCP_SYN_SENT:
 		/* Processing of pending connections for servers goes through
 		 * the listening socket, so see vmci_transport_recv_listen()
 		 * for that path.
 		 */
 		vmci_transport_recv_connecting_client(sk, pkt);
 		break;
-	case SS_CONNECTED:
+	case TCP_ESTABLISHED:
 		vmci_transport_recv_connected(sk, pkt);
 		break;
 	default:
@@ -983,7 +945,7 @@ static int vmci_transport_recv_listen(struct sock *sk,
 		vsock_sk(pending)->local_addr.svm_cid = pkt->dg.dst.context;
 
 		switch (pending->sk_state) {
-		case SS_CONNECTING:
+		case TCP_SYN_SENT:
 			err = vmci_transport_recv_connecting_server(sk,
 								    pending,
 								    pkt);
@@ -1113,7 +1075,7 @@ static int vmci_transport_recv_listen(struct sock *sk,
 	vsock_add_pending(sk, pending);
 	sk->sk_ack_backlog++;
 
-	pending->sk_state = SS_CONNECTING;
+	pending->sk_state = TCP_SYN_SENT;
 	vmci_trans(vpending)->produce_size =
 		vmci_trans(vpending)->consume_size = qp_size;
 	vmci_trans(vpending)->queue_pair_size = qp_size;
@@ -1132,7 +1094,8 @@ static int vmci_transport_recv_listen(struct sock *sk,
 	vpending->listener = sk;
 	sock_hold(sk);
 	sock_hold(pending);
-	schedule_delayed_work(&vpending->pending_work, HZ);
+	INIT_DELAYED_WORK(&vpending->dwork, vsock_pending_work);
+	schedule_delayed_work(&vpending->dwork, HZ);
 
 out:
 	return err;
@@ -1237,11 +1200,11 @@ vmci_transport_recv_connecting_server(struct sock *listener,
 	 * the socket will be valid until it is removed from the queue.
 	 *
 	 * If we fail sending the attach below, we remove the socket from the
-	 * connected list and move the socket to SS_UNCONNECTED before
+	 * connected list and move the socket to TCP_CLOSE before
 	 * releasing the lock, so a pending slow path processing of an incoming
 	 * packet will not see the socket in the connected state in that case.
 	 */
-	pending->sk_state = SS_CONNECTED;
+	pending->sk_state = TCP_ESTABLISHED;
 
 	vsock_insert_connected(vpending);
 
@@ -1272,7 +1235,7 @@ vmci_transport_recv_connecting_server(struct sock *listener,
 
 destroy:
 	pending->sk_err = skerr;
-	pending->sk_state = SS_UNCONNECTED;
+	pending->sk_state = TCP_CLOSE;
 	/* As long as we drop our reference, all necessary cleanup will handle
 	 * when the cleanup function drops its reference and our destruct
 	 * implementation is called.  Note that since the listen handler will
@@ -1310,7 +1273,7 @@ vmci_transport_recv_connecting_client(struct sock *sk,
 		 * accounting (it can already be found since it's in the bound
 		 * table).
 		 */
-		sk->sk_state = SS_CONNECTED;
+		sk->sk_state = TCP_ESTABLISHED;
 		sk->sk_socket->state = SS_CONNECTED;
 		vsock_insert_connected(vsk);
 		sk->sk_state_change(sk);
@@ -1378,7 +1341,7 @@ vmci_transport_recv_connecting_client(struct sock *sk,
 destroy:
 	vmci_transport_send_reset(sk, pkt);
 
-	sk->sk_state = SS_UNCONNECTED;
+	sk->sk_state = TCP_CLOSE;
 	sk->sk_err = skerr;
 	sk->sk_error_report(sk);
 	return err;
@@ -1566,7 +1529,7 @@ static int vmci_transport_recv_connected(struct sock *sk,
 		sock_set_flag(sk, SOCK_DONE);
 		vsk->peer_shutdown = SHUTDOWN_MASK;
 		if (vsock_stream_has_data(vsk) <= 0)
-			sk->sk_state = SS_DISCONNECTING;
+			sk->sk_state = TCP_CLOSING;
 
 		sk->sk_state_change(sk);
 		break;
@@ -1656,10 +1619,6 @@ static void vmci_transport_cleanup(struct work_struct *work)
 
 static void vmci_transport_destruct(struct vsock_sock *vsk)
 {
-	/* transport can be NULL if we hit a failure at init() time */
-	if (!vmci_trans(vsk))
-		return;
-
 	/* Ensure that the detach callback doesn't use the sk/vsk
 	 * we are about to destruct.
 	 */
@@ -1834,7 +1793,7 @@ static int vmci_transport_connect(struct vsock_sock *vsk)
 		err = vmci_transport_send_conn_request(
 			sk, vmci_trans(vsk)->queue_pair_size);
 		if (err < 0) {
-			sk->sk_state = SS_UNCONNECTED;
+			sk->sk_state = TCP_CLOSE;
 			return err;
 		}
 	} else {
@@ -1844,7 +1803,7 @@ static int vmci_transport_connect(struct vsock_sock *vsk)
 				sk, vmci_trans(vsk)->queue_pair_size,
 				supported_proto_versions);
 		if (err < 0) {
-			sk->sk_state = SS_UNCONNECTED;
+			sk->sk_state = TCP_CLOSE;
 			return err;
 		}
 
@@ -2189,7 +2148,7 @@ module_exit(vmci_transport_exit);
 
 MODULE_AUTHOR("VMware, Inc.");
 MODULE_DESCRIPTION("VMCI transport for Virtual Sockets");
-MODULE_VERSION("1.0.4.0-k");
+MODULE_VERSION("1.0.5.0-k");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("vmware_vsock");
 MODULE_ALIAS_NETPROTO(PF_VSOCK);

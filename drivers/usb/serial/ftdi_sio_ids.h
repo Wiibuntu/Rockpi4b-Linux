@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * vendor/product IDs (VID/PID) of devices using FTDI USB serial converters.
  * Please keep numerically sorted within individual areas, thanks!
@@ -566,9 +567,7 @@
 /*
  * NovaTech product ids (FTDI_VID)
  */
-#define FTDI_NT_ORIONLXM_PID		0x7c90	/* OrionLXm Substation Automation Platform */
-#define FTDI_NT_ORIONLX_PLUS_PID	0x7c91	/* OrionLX+ Substation Automation Platform */
-#define FTDI_NT_ORION_IO_PID		0x7c92	/* Orion I/O */
+#define FTDI_NT_ORIONLXM_PID	0x7c90	/* OrionLXm Substation Automation Platform */
 
 /*
  * Synapse Wireless product ids (FTDI_VID)
@@ -1308,12 +1307,6 @@
  */
 #define IONICS_VID			0x1c0c
 #define IONICS_PLUGCOMPUTER_PID		0x0102
-
-/*
- * EZPrototypes (PID reseller)
- */
-#define EZPROTOTYPES_VID		0x1c40
-#define HJELMSLUND_USB485_ISO_PID	0x0477
 
 /*
  * Dresden Elektronik Sensor Terminal Board

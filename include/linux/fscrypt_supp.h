@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * fscrypt_supp.h
  *
@@ -28,7 +29,7 @@ struct fscrypt_operations {
 	int (*set_context)(struct inode *, const void *, size_t, void *);
 	bool (*dummy_context)(struct inode *);
 	bool (*empty_dir)(struct inode *);
-	unsigned int max_namelen;
+	unsigned (*max_namelen)(struct inode *);
 };
 
 struct fscrypt_ctx {
@@ -58,7 +59,6 @@ static inline bool fscrypt_dummy_context_enabled(struct inode *inode)
 }
 
 /* crypto.c */
-extern void fscrypt_enqueue_decrypt_work(struct work_struct *);
 extern struct fscrypt_ctx *fscrypt_get_ctx(const struct inode *, gfp_t);
 extern void fscrypt_release_ctx(struct fscrypt_ctx *);
 extern struct page *fscrypt_encrypt_page(const struct inode *, struct page *,
@@ -74,6 +74,20 @@ static inline struct page *fscrypt_control_page(struct page *page)
 
 extern void fscrypt_restore_control_page(struct page *);
 
+extern const struct dentry_operations fscrypt_d_ops;
+
+static inline void fscrypt_set_d_op(struct dentry *dentry)
+{
+	d_set_d_op(dentry, &fscrypt_d_ops);
+}
+
+static inline void fscrypt_set_encrypted_dentry(struct dentry *dentry)
+{
+	spin_lock(&dentry->d_lock);
+	dentry->d_flags |= DCACHE_ENCRYPTED_WITH_KEY;
+	spin_unlock(&dentry->d_lock);
+}
+
 /* policy.c */
 extern int fscrypt_ioctl_set_policy(struct file *, const void __user *);
 extern int fscrypt_ioctl_get_policy(struct file *, void __user *);
@@ -82,7 +96,7 @@ extern int fscrypt_inherit_context(struct inode *, struct inode *,
 					void *, bool);
 /* keyinfo.c */
 extern int fscrypt_get_encryption_info(struct inode *);
-extern void fscrypt_put_encryption_info(struct inode *, struct fscrypt_info *);
+extern void fscrypt_put_encryption_info(struct inode *);
 
 /* fname.c */
 extern int fscrypt_setup_filename(struct inode *, const struct qstr *,
@@ -174,9 +188,7 @@ static inline bool fscrypt_match_name(const struct fscrypt_name *fname,
 }
 
 /* bio.c */
-extern void fscrypt_decrypt_bio(struct bio *);
-extern void fscrypt_enqueue_decrypt_bio(struct fscrypt_ctx *ctx,
-					struct bio *bio);
+extern void fscrypt_decrypt_bio_pages(struct fscrypt_ctx *, struct bio *);
 extern void fscrypt_pullback_bio_page(struct page **, bool);
 extern int fscrypt_zeroout_range(const struct inode *, pgoff_t, sector_t,
 				 unsigned int);
@@ -196,7 +208,8 @@ extern int __fscrypt_prepare_symlink(struct inode *dir, unsigned int len,
 extern int __fscrypt_encrypt_symlink(struct inode *inode, const char *target,
 				     unsigned int len,
 				     struct fscrypt_str *disk_link);
-extern void *fscrypt_get_symlink(struct inode *inode, const void *caddr,
-				       unsigned int max_size);
+extern const char *fscrypt_get_symlink(struct inode *inode, const void *caddr,
+				       unsigned int max_size,
+				       struct delayed_call *done);
 
 #endif	/* _LINUX_FSCRYPT_SUPP_H */

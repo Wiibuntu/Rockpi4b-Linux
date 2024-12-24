@@ -35,7 +35,7 @@ enum xmp_state {
 /**
  * ir_xmp_decode() - Decode one XMP pulse or space
  * @dev:	the struct rc_dev descriptor of the device
- * @duration:	the struct ir_raw_event descriptor of the pulse/space
+ * @ev:		the struct ir_raw_event descriptor of the pulse/space
  *
  * This function returns -EINVAL if the pulse violates the state machine
  */
@@ -199,7 +199,6 @@ static int ir_xmp_decode(struct rc_dev *dev, struct ir_raw_event ev)
 static struct ir_raw_handler xmp_handler = {
 	.protocols	= RC_PROTO_BIT_XMP,
 	.decode		= ir_xmp_decode,
-	.min_timeout	= XMP_TRAILER_SPACE,
 };
 
 static int __init ir_xmp_decode_init(void)

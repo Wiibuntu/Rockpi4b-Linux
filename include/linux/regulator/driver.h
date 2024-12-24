@@ -19,6 +19,7 @@
 #include <linux/notifier.h>
 #include <linux/regulator/consumer.h>
 
+struct gpio_desc;
 struct regmap;
 struct regulator_dev;
 struct regulator_config;
@@ -93,10 +94,14 @@ struct regulator_linear_range {
  * @get_current_limit: Get the configured limit for a current-limited regulator.
  * @set_input_current_limit: Configure an input limit.
  *
+ * @set_over_current_protection: Support capability of automatically shutting
+ *                               down when detecting an over current event.
+ *
  * @set_active_discharge: Set active discharge enable/disable of regulators.
  *
  * @set_mode: Set the configured operating mode for the regulator.
  * @get_mode: Get the configured operating mode for the regulator.
+ * @get_error_flags: Get the current error(s) for the regulator.
  * @get_status: Return actual (not as-configured) status of regulator, as a
  *	REGULATOR_STATUS value (or negative errno)
  * @get_optimum_mode: Get the most efficient operating mode for the regulator
@@ -166,6 +171,9 @@ struct regulator_ops {
 	int (*set_mode) (struct regulator_dev *, unsigned int mode);
 	unsigned int (*get_mode) (struct regulator_dev *);
 
+	/* retrieve current error flags on the regulator */
+	int (*get_error_flags)(struct regulator_dev *, unsigned int *flags);
+
 	/* Time taken to enable or set voltage on the regulator */
 	int (*enable_time) (struct regulator_dev *);
 	int (*set_ramp_delay) (struct regulator_dev *, int ramp_delay);
@@ -206,6 +214,8 @@ struct regulator_ops {
 
 	/* set regulator suspend operating mode (defined in consumer.h) */
 	int (*set_suspend_mode) (struct regulator_dev *, unsigned int mode);
+
+	int (*resume_early)(struct regulator_dev *rdev);
 
 	int (*set_pull_down) (struct regulator_dev *);
 };
@@ -261,6 +271,8 @@ enum regulator_type {
  *
  * @vsel_reg: Register for selector when using regulator_regmap_X_voltage_
  * @vsel_mask: Mask for register bitfield used for selector
+ * @csel_reg: Register for TPS65218 LS3 current regulator
+ * @csel_mask: Mask for TPS65218 LS3 current regulator
  * @apply_reg: Register for initiate voltage change on the output when
  *                using regulator_set_voltage_sel_regmap
  * @apply_bit: Register bitfield used for initiate voltage change on the
@@ -283,6 +295,14 @@ enum regulator_type {
  *			   set_active_discharge
  * @active_discharge_reg: Register for control when using regmap
  *			  set_active_discharge
+ * @soft_start_reg: Register for control when using regmap set_soft_start
+ * @soft_start_mask: Mask for control when using regmap set_soft_start
+ * @soft_start_val_on: Enabling value for control when using regmap
+ *                     set_soft_start
+ * @pull_down_reg: Register for control when using regmap set_pull_down
+ * @pull_down_mask: Mask for control when using regmap set_pull_down
+ * @pull_down_val_on: Enabling value for control when using regmap
+ *                     set_pull_down
  *
  * @enable_time: Time taken for initial enable of regulator (in uS).
  * @off_on_delay: guard time (in uS), before re-enabling a regulator
@@ -298,7 +318,7 @@ struct regulator_desc {
 			    const struct regulator_desc *,
 			    struct regulator_config *);
 	int id;
-	bool continuous_voltage_range;
+	unsigned int continuous_voltage_range:1;
 	unsigned n_voltages;
 	const struct regulator_ops *ops;
 	int irq;
@@ -319,6 +339,8 @@ struct regulator_desc {
 
 	unsigned int vsel_reg;
 	unsigned int vsel_mask;
+	unsigned int csel_reg;
+	unsigned int csel_mask;
 	unsigned int apply_reg;
 	unsigned int apply_bit;
 	unsigned int enable_reg;
@@ -334,6 +356,12 @@ struct regulator_desc {
 	unsigned int active_discharge_off;
 	unsigned int active_discharge_mask;
 	unsigned int active_discharge_reg;
+	unsigned int soft_start_reg;
+	unsigned int soft_start_mask;
+	unsigned int soft_start_val_on;
+	unsigned int pull_down_reg;
+	unsigned int pull_down_mask;
+	unsigned int pull_down_val_on;
 
 	unsigned int enable_time;
 
@@ -360,6 +388,7 @@ struct regulator_desc {
  *                        initialized, meaning that >= 0 is a valid gpio
  *                        identifier and < 0 is a non existent gpio.
  * @ena_gpio: GPIO controlling regulator enable.
+ * @ena_gpiod: GPIO descriptor controlling regulator enable.
  * @ena_gpio_invert: Sense for GPIO enable control.
  * @ena_gpio_flags: Flags to use when calling gpio_request_one()
  */
@@ -372,6 +401,7 @@ struct regulator_config {
 
 	bool ena_gpio_initialized;
 	int ena_gpio;
+	struct gpio_desc *ena_gpiod;
 	unsigned int ena_gpio_invert:1;
 	unsigned int ena_gpio_flags;
 };
@@ -418,9 +448,10 @@ struct regulator_dev {
 	struct regulator_enable_gpio *ena_pin;
 	unsigned int ena_gpio_state:1;
 
+	unsigned int is_switch:1;
+
 	/* time when this regulator was disabled last time */
 	unsigned long last_off_jiffy;
-	struct regulator *debug_consumer;
 };
 
 struct regulator_dev *
@@ -466,6 +497,8 @@ int regulator_set_voltage_time_sel(struct regulator_dev *rdev,
 				   unsigned int new_selector);
 int regulator_set_bypass_regmap(struct regulator_dev *rdev, bool enable);
 int regulator_get_bypass_regmap(struct regulator_dev *rdev, bool *enable);
+int regulator_set_soft_start_regmap(struct regulator_dev *rdev);
+int regulator_set_pull_down_regmap(struct regulator_dev *rdev);
 
 int regulator_set_active_discharge_regmap(struct regulator_dev *rdev,
 					  bool enable);

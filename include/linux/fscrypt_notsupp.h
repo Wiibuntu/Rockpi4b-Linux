@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * fscrypt_notsupp.h
  *
@@ -24,10 +25,6 @@ static inline bool fscrypt_dummy_context_enabled(struct inode *inode)
 }
 
 /* crypto.c */
-static inline void fscrypt_enqueue_decrypt_work(struct work_struct *work)
-{
-}
-
 static inline struct fscrypt_ctx *fscrypt_get_ctx(const struct inode *inode,
 						  gfp_t gfp_flags)
 {
@@ -67,6 +64,16 @@ static inline void fscrypt_restore_control_page(struct page *page)
 	return;
 }
 
+static inline void fscrypt_set_d_op(struct dentry *dentry)
+{
+	return;
+}
+
+static inline void fscrypt_set_encrypted_dentry(struct dentry *dentry)
+{
+	return;
+}
+
 /* policy.c */
 static inline int fscrypt_ioctl_set_policy(struct file *filp,
 					   const void __user *arg)
@@ -98,8 +105,7 @@ static inline int fscrypt_get_encryption_info(struct inode *inode)
 	return -EOPNOTSUPP;
 }
 
-static inline void fscrypt_put_encryption_info(struct inode *inode,
-					       struct fscrypt_info *ci)
+static inline void fscrypt_put_encryption_info(struct inode *inode)
 {
 	return;
 }
@@ -154,13 +160,10 @@ static inline bool fscrypt_match_name(const struct fscrypt_name *fname,
 }
 
 /* bio.c */
-static inline void fscrypt_decrypt_bio(struct bio *bio)
+static inline void fscrypt_decrypt_bio_pages(struct fscrypt_ctx *ctx,
+					     struct bio *bio)
 {
-}
-
-static inline void fscrypt_enqueue_decrypt_bio(struct fscrypt_ctx *ctx,
-					       struct bio *bio)
-{
+	return;
 }
 
 static inline void fscrypt_pullback_bio_page(struct page **page, bool restore)
@@ -220,9 +223,10 @@ static inline int __fscrypt_encrypt_symlink(struct inode *inode,
 	return -EOPNOTSUPP;
 }
 
-static inline void *fscrypt_get_symlink(struct inode *inode,
+static inline const char *fscrypt_get_symlink(struct inode *inode,
 					      const void *caddr,
-					      unsigned int max_size)
+					      unsigned int max_size,
+					      struct delayed_call *done)
 {
 	return ERR_PTR(-EOPNOTSUPP);
 }

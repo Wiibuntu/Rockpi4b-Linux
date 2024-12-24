@@ -108,33 +108,6 @@
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 	};
-
-	xin32k: xin32k {
-		compatible = "fixed-clock";
-		clock-frequency = <32768>;
-		clock-output-names = "xin32k";
-		#clock-cells = <0>;
-	};
-};
-
-&cpu0 {
-	cpu0-supply = <&vdd_cpu>;
-	operating-points = <
-		/* KHz    uV */
-		1800000	1400000
-		1608000	1350000
-		1512000 1300000
-		1416000 1200000
-		1200000 1100000
-		1008000 1050000
-		 816000 1000000
-		 696000  950000
-		 600000  900000
-		 408000  900000
-		 312000  900000
-		 216000  900000
-		 126000  900000
-	>;
 };
 
 &emmc {
@@ -143,7 +116,6 @@
 	cap-mmc-highspeed;
 	disable-wp;
 	non-removable;
-	num-slots = <1>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&emmc_clk &emmc_cmd &emmc_pwr &emmc_bus8>;
 	vmmc-supply = <&vdd_3v3_io>;
@@ -179,24 +151,12 @@
 			ti,tx-internal-delay = <DP83867_RGMIIDCTL_2_00_NS>;
 			ti,fifo-depth = <DP83867_PHYCR_FIFO_DEPTH_4_B_NIB>;
 			enet-phy-lane-no-swap;
-			ti,clk-output-sel = <DP83867_CLK_O_SEL_CHN_A_TCLK>;
 		};
 	};
 };
 
-&gpu {
-	mali-supply = <&vdd_gpu>;
-	status = "okay";
-};
-
 &hdmi {
-	#address-cells = <1>;
-	#size-cells = <0>;
-	#sound-dai-cells = <0>;
-};
-
-&hevc_service {
-	status = "okay";
+	ddc-i2c-bus = <&i2c5>;
 };
 
 &io_domains {
@@ -220,7 +180,6 @@
 	rk818: pmic@1c {
 		compatible = "rockchip,rk818";
 		reg = <0x1c>;
-		clock-output-names = "rk818-clkout1";
 		interrupt-parent = <&gpio0>;
 		interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
@@ -377,11 +336,10 @@
 				regulator-name = "vdd_io_sd";
 				regulator-always-on;
 				regulator-boot-on;
-				regulator-min-microvolt = <3300000>;
+				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-state-mem {
-					regulator-on-in-suspend;
-					regulator-suspend-microvolt = <3300000>;
+					regulator-off-in-suspend;
 				};
 			};
 		};
@@ -407,15 +365,6 @@
 		regulator-ramp-delay = <8000>;
 		vin-supply = <&vdd_sys>;
 	};
-};
-
-&i2s {
-	#sound-dai-cells = <0>;
-	status = "okay";
-};
-
-&rga {
-	status = "okay";
 };
 
 &pinctrl {
@@ -503,7 +452,6 @@
 	status = "okay";
 	rockchip,hw-tshut-mode = <0>;
 	rockchip,hw-tshut-polarity = <0>;
-	pinctrl-1 = <&otp_gpio>;
 };
 
 &vopb {
@@ -519,10 +467,6 @@
 };
 
 &vopl_mmu {
-	status = "okay";
-};
-
-&vpu_service {
 	status = "okay";
 };
 
